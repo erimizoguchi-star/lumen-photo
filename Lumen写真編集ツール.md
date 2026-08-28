@@ -5,6 +5,7 @@
 
 ## リンク
 
+- GitHub（private）: https://github.com/erimizoguchi-star/lumen-photo
 - ローカルフォルダ: `/Users/erimizoguchi/Desktop/photo`
 - 起動URL: http://127.0.0.1:5173/
 - 起動ファイル: `開く.command`（ダブルクリックでサーバー起動＋ブラウザ表示）
