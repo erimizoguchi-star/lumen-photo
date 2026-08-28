@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lumen — Photo Editor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Syne:wght@500;700;800&family=IBM+Plex+Sans+JP:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <span class="brand-name">Lumen</span>
+        </div>
+        <div class="topbar-actions">
+          <button type="button" class="btn ghost" id="resetBtn" disabled>リセット</button>
+          <button type="button" class="btn ghost" id="downloadAllBtn" disabled hidden title="すべての写真をダウンロード">すべてDL</button>
+          <button type="button" class="btn ghost" id="downloadBtn" disabled title="ブラウザのダウンロードへ保存">ダウンロード</button>
+          <button type="button" class="btn primary" id="saveAllBtn" disabled hidden title="すべての写真をフォルダへ保存">すべて保存</button>
+          <button type="button" class="btn primary" id="saveBtn" disabled title="指定フォルダへ直接保存（対応ブラウザ）">保存</button>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <aside class="panel">
+          <section class="tool-block">
+            <h2>写真</h2>
+            <label class="upload-btn" for="fileInput">
+              <span>写真を追加</span>
+              <input id="fileInput" type="file" accept="image/*" multiple hidden />
+            </label>
+            <p class="hint" id="fileHint">複数選択可 · JPEG / PNG / WEBP</p>
+
+            <div class="gallery" id="gallery" hidden>
+              <div class="gallery-head">
+                <span class="gallery-count" id="galleryCount">0枚</span>
+                <button type="button" class="btn ghost gallery-clear" id="clearAllBtn">すべて削除</button>
+              </div>
+              <ul class="gallery-list" id="galleryList" aria-label="アップロードした写真"></ul>
+            </div>
+
+            <label class="field name-field" id="nameField" hidden>
+              <span>名前</span>
+              <div class="name-edit">
+                <input type="text" id="photoNameInput" autocomplete="off" spellcheck="false" />
+                <button type="button" class="btn secondary" id="applyNameBtn">変更</button>
+              </div>
+              <p class="hint">保存・ダウンロード時のファイル名になります</p>
+            </label>
+
+            <label class="field address-field" id="addressField">
+              <span>物件種別</span>
+              <select id="propertyType">
+                <option value="mansion">マンション売買</option>
+                <option value="house">戸建て売買</option>
+                <option value="land">土地売買</option>
+              </select>
+              <p class="hint">種別に合わせてキャプションの言い回し・カテゴリが変わります</p>
+            </label>
+
+            <label class="field address-field">
+              <span>物件住所（任意）</span>
+              <input type="text" id="propertyAddress" autocomplete="street-address" placeholder="例）大阪市淀川区西三国４丁目" />
+              <p class="hint">周辺環境キャプションの参考になります（徒歩分数などの断定はしません）</p>
+            </label>
+
+            <div class="caption-box" id="captionBox" hidden>
+              <p class="pane-desc">キャプション（登録サイト用）</p>
+
+              <label class="field">
+                <span>カテゴリ（生成前に選択）</span>
+                <select id="captionCategory"></select>
+              </label>
+              <p class="hint">先にカテゴリを選ぶと、写真の見方を絞れてコメントが的確になります</p>
+
+              <div class="ai-box">
+                <p class="pane-desc">AIで写真から生成</p>
+                <label class="field">
+                  <span>Gemini APIキー</span>
+                  <div class="name-edit">
+                    <input type="password" id="geminiApiKey" autocomplete="off" placeholder="AIza…（ブラウザにのみ保存）" />
+                    <button type="button" class="btn secondary" id="verifyApiKeyBtn">確認</button>
+                  </div>
+                </label>
+                <p class="hint" id="apiKeyStatus"></p>
+                <p class="hint">
+                  <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>
+                  で無料キーを取得できます。写真は生成のため Google に送信されます。
+                </p>
+                <div class="btn-row caption-actions">
+                  <button type="button" class="btn primary" id="generateCaptionBtn">この写真から生成</button>
+                  <button type="button" class="btn secondary" id="generateAllCaptionsBtn">全写真を生成</button>
+                </div>
+                <p class="hint" id="aiCaptionStatus"></p>
+              </div>
+
+              <label class="field">
+                <span>定型文を挿入（任意）</span>
+                <select id="captionTemplate">
+                  <option value="">HOUSEDO風の定型文から選ぶ</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>キャプション（《杏栄》込み） <em id="captionCountLabel">4</em>/20</span>
+                <div class="caption-input-wrap">
+                  <span class="caption-prefix" aria-hidden="true">《杏栄》</span>
+                  <textarea id="captionInput" rows="2" maxlength="16" placeholder="例）対面キッチン"></textarea>
+                </div>
+                <p class="hint">《杏栄》を含めて合計20文字以内です</p>
+              </label>
+              <div class="btn-row caption-actions">
+                <button type="button" class="btn secondary" id="copyCaptionBtn">この文をコピー</button>
+                <button type="button" class="btn ghost" id="clearCaptionBtn">クリア</button>
+              </div>
+              <button type="button" class="btn primary full" id="copyAllCaptionsBtn">全写真のキャプションをコピー</button>
+              <button type="button" class="btn ghost full" id="downloadCaptionsBtn">キャプション一覧を保存</button>
+              <p class="hint">SUUMO・HOME'S・自社サイト等の写真コメント欄に貼り付けできます</p>
+            </div>
+
+            <div class="save-folder" id="saveFolderBlock">
+              <p class="pane-desc">保存先フォルダ</p>
+              <p class="hint" id="folderHint">未設定（初回に選択）</p>
+              <button type="button" class="btn secondary full" id="pickFolderBtn">
+                フォルダを選ぶ
+              </button>
+            </div>
+          </section>
+
+          <section class="tool-block" id="toolsSection" hidden>
+            <h2>ツール</h2>
+            <div class="tool-tabs" role="tablist">
+              <button type="button" class="tool-tab active" data-tool="resize">サイズ</button>
+              <button type="button" class="tool-tab" data-tool="crop">トリミング</button>
+              <button type="button" class="tool-tab" data-tool="rotate">角度</button>
+              <button type="button" class="tool-tab" data-tool="hide">隠す</button>
+              <button type="button" class="tool-tab" data-tool="brightness">明るさ</button>
+            </div>
+
+            <div class="tool-pane active" data-pane="resize">
+              <label class="field">
+                <span>幅 (px)</span>
+                <input type="number" id="resizeWidth" min="1" step="1" />
+              </label>
+              <label class="field">
+                <span>高さ (px)</span>
+                <input type="number" id="resizeHeight" min="1" step="1" />
+              </label>
+              <label class="check">
+                <input type="checkbox" id="keepAspect" checked />
+                <span>縦横比を維持</span>
+              </label>
+              <button type="button" class="btn secondary full" id="applyResize">この写真に適用</button>
+
+              <div class="batch-box" id="batchResizeBox" hidden>
+                <p class="pane-desc">一括処理</p>
+                <label class="field">
+                  <span>方式</span>
+                  <select id="batchResizeMode">
+                    <option value="fit">枠内に収める（縦横比維持）</option>
+                    <option value="width">幅に合わせる</option>
+                    <option value="height">高さに合わせる</option>
+                    <option value="long">長辺を指定</option>
+                    <option value="exact">指定サイズに強制</option>
+                  </select>
+                </label>
+                <label class="field" id="batchLongEdgeField" hidden>
+                  <span>長辺 (px)</span>
+                  <input type="number" id="batchLongEdge" min="1" step="1" value="1600" />
+                </label>
+                <p class="hint" id="batchResizeHint">上の幅・高さで全写真を処理します</p>
+                <button type="button" class="btn secondary full" id="batchResizeBtn">すべてにサイズ適用</button>
+                <button type="button" class="btn primary full" id="batchResizeSaveBtn">サイズ適用して保存</button>
+                <button type="button" class="btn ghost full" id="batchResizeDownloadBtn">サイズ適用してDL</button>
+              </div>
+            </div>
+
+            <div class="tool-pane" data-pane="crop">
+              <p class="pane-desc">枠をドラッグして範囲を決め、適用で切り抜きます。</p>
+              <label class="field">
+                <span>縦横比</span>
+                <select id="cropAspect">
+                  <option value="free">自由</option>
+                  <option value="current">現在の比率を維持</option>
+                  <option value="1">1 : 1</option>
+                  <option value="1.333">4 : 3</option>
+                  <option value="1.778">16 : 9</option>
+                  <option value="0.75">3 : 4</option>
+                  <option value="0.5625">9 : 16</option>
+                </select>
+              </label>
+              <button type="button" class="btn secondary full" id="resetCrop">枠をリセット</button>
+              <button type="button" class="btn primary full" id="applyCrop">トリミングを適用</button>
+            </div>
+
+            <div class="tool-pane" data-pane="rotate">
+              <p class="pane-desc">傾きを直します。適用後は余白を自動で切り取ります。</p>
+              <label class="field">
+                <span>角度 <em id="rotateAngleLabel">0.0</em>°</span>
+                <input type="range" id="rotateAngle" min="-45" max="45" step="0.1" value="0" />
+              </label>
+              <div class="btn-row">
+                <button type="button" class="btn ghost" id="rotateLeft" title="-90°">↺ 90°</button>
+                <button type="button" class="btn ghost" id="rotateRight" title="+90°">↻ 90°</button>
+              </div>
+              <button type="button" class="btn secondary full" id="resetRotate">角度を戻す</button>
+              <button type="button" class="btn primary full" id="applyRotate">角度を適用</button>
+            </div>
+
+            <div class="tool-pane" data-pane="hide">
+              <p class="pane-desc">不要な部分をなぞると、大きめのモザイクで隠します。</p>
+              <label class="field">
+                <span>ブラシサイズ <em id="brushSizeLabel">48</em></span>
+                <input type="range" id="brushSize" min="16" max="120" value="48" />
+              </label>
+              <label class="field">
+                <span>モザイクサイズ <em id="mosaicSizeLabel">28</em>px</span>
+                <input type="range" id="mosaicSize" min="12" max="64" value="28" />
+              </label>
+              <p class="hint">ドラッグで隠す・二本指で移動・ピンチで拡大</p>
+            </div>
+
+            <div class="tool-pane" data-pane="brightness">
+              <label class="field">
+                <span>明るさ <em id="brightnessLabel">0</em></span>
+                <input type="range" id="brightness" min="-100" max="100" value="0" />
+              </label>
+              <label class="field">
+                <span>コントラスト <em id="contrastLabel">0</em></span>
+                <input type="range" id="contrast" min="-50" max="50" value="0" />
+              </label>
+              <button type="button" class="btn secondary full" id="resetLight">明るさを戻す</button>
+            </div>
+          </section>
+        </aside>
+
+        <section class="stage" id="stage">
+          <div class="dropzone" id="dropzone">
+            <div class="dropzone-inner">
+              <p class="dropzone-brand">Lumen</p>
+              <h1>写真をここにドロップ</h1>
+              <p>複数枚まとめて追加できます</p>
+            </div>
+          </div>
+          <div class="canvas-wrap" id="canvasWrap" hidden>
+            <canvas id="canvas"></canvas>
+          </div>
+          <div class="zoom-bar" id="zoomBar" hidden>
+            <button type="button" class="zoom-btn zoom-pan" id="panModeBtn" aria-label="移動" title="移動モード" aria-pressed="false">移動</button>
+            <span class="zoom-sep" aria-hidden="true"></span>
+            <button type="button" class="zoom-btn" id="zoomOut" aria-label="縮小">−</button>
+            <span class="zoom-label" id="zoomLabel">100%</span>
+            <button type="button" class="zoom-btn" id="zoomIn" aria-label="拡大">+</button>
+            <button type="button" class="zoom-btn zoom-fit" id="zoomFit">全体</button>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div class="toast" id="toast" hidden role="status" aria-live="polite"></div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
