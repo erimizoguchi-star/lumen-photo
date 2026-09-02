@@ -9,8 +9,18 @@
 
 - GitHub（private）: https://github.com/erimizoguchi-star/lumen-photo
 - ローカルフォルダ: `/Users/erimizoguchi/Desktop/photo`
-- 起動URL: http://127.0.0.1:5173/
-- 起動ファイル: `開く.command`（ダブルクリックでサーバー起動＋**Google Chrome** で開く）
+- 起動URL: http://127.0.0.1:5173/（**サーバー起動後のみ**有効）
+- 起動ファイル: `開く.command`（Finder でダブルクリック）
+
+## Obsidianから開く
+
+Obsidian のリンクだけではサーバーが起動しないため、下の **Lumen起動.app** を使います。
+
+1. **[[Lumen起動.app]]** をクリック（Vault 直下に配置）
+2. 初回は macOS が確認を出す → **開く**
+3. サーバー起動後、**Google Chrome** で Lumen が開きます
+
+> URL（`http://127.0.0.1:5173/`）を Obsidian から開いても、サーバーが止まっているとつながりません。必ず **Lumen起動.app** から起動してください。
 
 ## 起動方法
 
@@ -28,7 +38,8 @@ open -a "Google Chrome" http://127.0.0.1:5173/
 
 | 症状 | 対処 |
 |------|------|
-| ページが真っ白 / つながらない | `開く.command` を再実行（サーバーが止まっている） |
+| ページが真っ白 / つながらない | `開く.command` または **[[Lumen起動.app]]** を再実行 |
+| Obsidian から ERR_CONNECTION_REFUSED | **[[Lumen起動.app]]** を使う（URL直リンクはサーバー未起動だと失敗） |
 | 古い画面のまま | 画面上部の **「再読み込み」** または Cmd+Shift+R |
 | 写真が読み込めない | JPEG/PNG を試す。HEIC は **Safari** 推奨 |
 | 読み込み中のまま止まる | ページ再読み込み → 写真枚数を減らして再試行 |
@@ -197,6 +208,8 @@ open -a "Google Chrome" http://127.0.0.1:5173/
 | `app.js` | 編集・一括・キャプション・Gemini・空・透かし |
 | `assets/kyouei-watermark.png` | 透かしロゴ |
 | `開く.command` | ローカルサーバー起動＋Chrome で開く |
+| `Lumen起動.app` | Obsidian からワンクリック起動（サーバー＋Chrome） |
+| `scripts/Lumen起動.applescript` | 上記アプリのソース |
 
 依存: Node 不要。Ruby の簡易 HTTP サーバーで動作。推奨ブラウザは **Google Chrome**。
 

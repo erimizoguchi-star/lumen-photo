@@ -1,6 +1,8 @@
 (() => {
   "use strict";
 
+  const APP_VERSION = "20";
+
   const fileInput = document.getElementById("fileInput");
   const fileHint = document.getElementById("fileHint");
   const dropzone = document.getElementById("dropzone");
@@ -16,6 +18,8 @@
   const toolsSection = document.getElementById("toolsSection");
   const resetBtn = document.getElementById("resetBtn");
   const reloadAppBtn = document.getElementById("reloadAppBtn");
+  const homeBtn = document.getElementById("homeBtn");
+  const appVersionEl = document.getElementById("appVersion");
   const downloadBtn = document.getElementById("downloadBtn");
   const downloadAllBtn = document.getElementById("downloadAllBtn");
   const saveBtn = document.getElementById("saveBtn");
@@ -26,6 +30,7 @@
   const galleryList = document.getElementById("galleryList");
   const galleryCount = document.getElementById("galleryCount");
   const clearAllBtn = document.getElementById("clearAllBtn");
+  const clearListingInfoBtn = document.getElementById("clearListingInfoBtn");
   const nameField = document.getElementById("nameField");
   const photoNameInput = document.getElementById("photoNameInput");
   const applyNameBtn = document.getElementById("applyNameBtn");
@@ -39,6 +44,7 @@
   const copyAllCaptionsBtn = document.getElementById("copyAllCaptionsBtn");
   const downloadCaptionsBtn = document.getElementById("downloadCaptionsBtn");
   const watermarkEnabled = document.getElementById("watermarkEnabled");
+  const overwriteExisting = document.getElementById("overwriteExisting");
   const watermarkPosPicker = document.getElementById("watermarkPosPicker");
   const geminiApiKey = document.getElementById("geminiApiKey");
   const verifyApiKeyBtn = document.getElementById("verifyApiKeyBtn");
@@ -648,6 +654,26 @@
     return t.toDataURL("image/jpeg", 0.7);
   }
 
+  function snapshotPhotoSettings() {
+    persistCaptionFromUi();
+    const photo = getActivePhoto();
+    if (!photo) return;
+    photo.brightness = brightness.value;
+    photo.contrast = contrast.value;
+    photo.skyPreset = getActiveSkyPresetId();
+    photo.skyStrength = skyStrength.value;
+    photo.skyBrightness = skyBrightness.value;
+    photo.skyTemperature = skyTemperature.value;
+    photo.skyScale = skyScale.value;
+    photo.skyShift = skyShift.value;
+    photo.skyRange = skyRange.value;
+    photo.skyEdgeFade = skyEdgeFade.value;
+    photo.skyForeground = skyForeground.value;
+    photo.skyKeepClouds = skyKeepClouds.checked;
+    photo.watermarkEnabled = isWatermarkEnabled();
+    photo.watermarkPosition = getWatermarkPositionFromUi();
+  }
+
   function snapshotCurrent() {
     persistCaptionFromUi();
     const photo = getActivePhoto();
@@ -667,6 +693,10 @@
     photo.skyKeepClouds = skyKeepClouds.checked;
     photo.watermarkEnabled = isWatermarkEnabled();
     photo.watermarkPosition = getWatermarkPositionFromUi();
+  }
+
+  function markPhotoPixelEdited(photo) {
+    if (photo) photo.pixelEdited = true;
   }
 
   function splitFileName(name) {
@@ -849,6 +879,7 @@
   const GEMINI_KEY_STORAGE = "lumen-gemini-api-key";
   const PROPERTY_ADDRESS_STORAGE = "lumen-property-address";
   const WATERMARK_STORAGE = "lumen-watermark-enabled";
+  const OVERWRITE_STORAGE = "lumen-overwrite-existing";
   const WATERMARK_POS_STORAGE = "lumen-watermark-position";
   const WATERMARK_SRC = "assets/kyouei-watermark.png";
   const WATERMARK_POSITIONS = ["top-left", "top-right", "bottom-left", "bottom-right"];
@@ -970,6 +1001,21 @@
 
   function isWatermarkEnabled() {
     return watermarkEnabled ? watermarkEnabled.checked : true;
+  }
+
+  function isOverwriteEnabled() {
+    return overwriteExisting ? overwriteExisting.checked : true;
+  }
+
+  function restoreOverwritePreference() {
+    if (!overwriteExisting) return;
+    const saved = localStorage.getItem(OVERWRITE_STORAGE);
+    overwriteExisting.checked = saved !== "0";
+  }
+
+  function persistOverwritePreference() {
+    if (!overwriteExisting) return;
+    localStorage.setItem(OVERWRITE_STORAGE, isOverwriteEnabled() ? "1" : "0");
   }
 
   function loadWatermarkImage() {
@@ -1636,6 +1682,7 @@ ${addressBlock}
     skyKeepClouds.checked = true;
     setActiveSkyPresetId(DEFAULT_SKY_PRESET);
     restoreWatermarkPreference();
+    restoreOverwritePreference();
     updateLightLabels();
     updateSkyLabels();
     updateSkyPresetActive();
@@ -1743,6 +1790,44 @@ ${addressBlock}
     clearEditor();
   }
 
+  function clearListingInfo({ silent = false } = {}) {
+    propertyAddress.value = "";
+    savePropertyAddress();
+    propertyType.value = "mansion";
+    localStorage.setItem(PROPERTY_TYPE_STORAGE, "mansion");
+    rebuildCaptionCategories(false);
+
+    photos.forEach((photo) => {
+      photo.name = photo.importName || photo.name;
+      photo.caption = "";
+      photo.captionCategory = "";
+    });
+
+    const active = getActivePhoto();
+    if (active) {
+      syncNameField();
+      syncCaptionField();
+      fileHint.textContent = active.name;
+    } else {
+      photoNameInput.value = "";
+      captionCategory.value = "";
+      captionInput.value = "";
+      fillCaptionTemplates("");
+      updateCaptionCount();
+    }
+
+    renderGallery();
+    if (!silent) showToast("住所・名前・キャプションをクリアしました");
+  }
+
+  function returnToHomeScreen() {
+    clearAllPhotos();
+    clearListingInfo({ silent: true });
+    setPanelTab("photos");
+    if (fileInput) fileInput.value = "";
+    showToast("初期画面に戻しました");
+  }
+
   function isImageFile(file) {
     if (!file) return false;
     if (file.type && file.type.startsWith("image/")) return true;
@@ -1832,6 +1917,7 @@ ${addressBlock}
           const photo = {
             id: `photo-${photoSeq}-${Date.now()}`,
             name: file.name,
+            importName: file.name,
             sourceImage: img,
             thumbUrl: makeThumbUrl(img),
             baseImageData: null,
@@ -1852,6 +1938,7 @@ ${addressBlock}
             watermarkPosition: getWatermarkPositionFromUi(),
             captionCategory: "",
             caption: "",
+            pixelEdited: false,
           };
           photos.push(photo);
           added.push(photo);
@@ -2422,6 +2509,159 @@ ${addressBlock}
     }
   }
 
+  function needsHeavyLitProcessing(contrastVal, skyOpts) {
+    return (
+      contrastVal !== 0 ||
+      Number(skyOpts?.strength) > 0 ||
+      Number(skyOpts?.foreground) > 0
+    );
+  }
+
+  function needsLitProcessing(bright, contrastVal, skyOpts) {
+    return bright !== 0 || needsHeavyLitProcessing(contrastVal, skyOpts);
+  }
+
+  function applyBrightnessToCanvas(targetCanvas, bright) {
+    if (!bright) return;
+    const ctx = targetCanvas.getContext("2d");
+    const w = targetCanvas.width;
+    const h = targetCanvas.height;
+    const data = ctx.getImageData(0, 0, w, h);
+    const px = data.data;
+    for (let i = 0; i < px.length; i += 4) {
+      px[i] = clamp(px[i] + bright, 0, 255);
+      px[i + 1] = clamp(px[i + 1] + bright, 0, 255);
+      px[i + 2] = clamp(px[i + 2] + bright, 0, 255);
+    }
+    ctx.putImageData(data, 0, 0);
+  }
+
+  function imageDataToCanvas(data) {
+    const canvas = document.createElement("canvas");
+    canvas.width = data.width;
+    canvas.height = data.height;
+    canvas.getContext("2d").putImageData(data, 0, 0);
+    return canvas;
+  }
+
+  function scaleImageData(data, targetW, targetH) {
+    if (data.width === targetW && data.height === targetH) return data;
+    const scaled = resizeCanvasHighQualitySync(imageDataToCanvas(data), targetW, targetH);
+    return scaled.getContext("2d").getImageData(0, 0, targetW, targetH);
+  }
+
+  function scaleCanvasToExport(source, w, h) {
+    const temp = document.createElement("canvas");
+    temp.width = w;
+    temp.height = h;
+    const tctx = temp.getContext("2d");
+    tctx.fillStyle = "#ffffff";
+    tctx.fillRect(0, 0, w, h);
+    tctx.imageSmoothingEnabled = true;
+    tctx.imageSmoothingQuality = "high";
+    tctx.drawImage(source, 0, 0, source.width, source.height, 0, 0, w, h);
+    return temp;
+  }
+
+  function canvasFromSourceImage(photo, w, h) {
+    const temp = document.createElement("canvas");
+    temp.width = w;
+    temp.height = h;
+    const tctx = temp.getContext("2d");
+    tctx.fillStyle = "#ffffff";
+    tctx.fillRect(0, 0, w, h);
+    tctx.imageSmoothingEnabled = true;
+    tctx.imageSmoothingQuality = "high";
+    tctx.drawImage(photo.sourceImage, 0, 0, w, h);
+    return temp;
+  }
+
+  function getPhotoAdjustments(photo) {
+    const isActive = photo.id === activePhotoId;
+    return {
+      bright: Number(isActive ? brightness.value : photo.brightness),
+      contrastVal: Number(isActive ? contrast.value : photo.contrast),
+      skyOpts: isActive ? getSkyOptionsFromUi() : getSkyOptionsFromPhoto(photo),
+    };
+  }
+
+  function canUseWatermarkOnlyExport(photo) {
+    if (photo.pixelEdited) return false;
+    if (!photo.sourceImage?.naturalWidth) return false;
+    const { contrastVal, skyOpts } = getPhotoAdjustments(photo);
+    return !needsHeavyLitProcessing(contrastVal, skyOpts);
+  }
+
+  async function buildWatermarkOnlyExportCanvas(photo, { watermark = true } = {}) {
+    const img = photo.sourceImage;
+    const { w, h } = resolveTargetSize(img.naturalWidth, img.naturalHeight);
+    const { bright } = getPhotoAdjustments(photo);
+    await yieldToUi();
+    const temp = canvasFromSourceImage(photo, w, h);
+    if (bright !== 0) {
+      applyBrightnessToCanvas(temp, bright);
+    }
+    if (watermark && isWatermarkEnabledForPhoto(photo)) {
+      applyWatermarkToCanvas(temp, getWatermarkPositionForPhoto(photo));
+    }
+    return temp;
+  }
+
+  async function scaleImageDataForExport(data, targetW, targetH) {
+    await yieldToUi();
+    let cur = imageDataToCanvas(data);
+    let cw = cur.width;
+    let ch = cur.height;
+    while (Math.max(cw, ch) > Math.max(targetW, targetH) * 2) {
+      cw = Math.max(targetW, Math.floor(cw / 2));
+      ch = Math.max(targetH, Math.floor(ch / 2));
+      const step = document.createElement("canvas");
+      step.width = cw;
+      step.height = ch;
+      const sctx = step.getContext("2d");
+      sctx.imageSmoothingEnabled = true;
+      sctx.imageSmoothingQuality = "high";
+      sctx.drawImage(cur, 0, 0, cw, ch);
+      cur = step;
+      await yieldToUi();
+    }
+    if (cw === targetW && ch === targetH) return cur;
+    return scaleCanvasToExport(cur, targetW, targetH);
+  }
+
+  async function buildExportCanvas(photo, { watermark = true } = {}) {
+    if (canUseWatermarkOnlyExport(photo)) {
+      return buildWatermarkOnlyExportCanvas(photo, { watermark });
+    }
+
+    const data = photo.id === activePhotoId && baseImageData ? baseImageData : photo.baseImageData;
+    if (!data) return null;
+
+    const { bright, contrastVal, skyOpts } = getPhotoAdjustments(photo);
+    const { w, h } = resolveTargetSize(data.width, data.height);
+
+    await yieldToUi();
+
+    let temp;
+    if (!needsLitProcessing(bright, contrastVal, skyOpts)) {
+      temp = await scaleImageDataForExport(data, w, h);
+    } else {
+      const workingData = scaleImageData(data, w, h);
+      await yieldToUi();
+      const out = new ImageData(w, h);
+      processLitPixels(workingData, out.data, bright, contrastVal, skyOpts);
+      temp = document.createElement("canvas");
+      temp.width = w;
+      temp.height = h;
+      temp.getContext("2d").putImageData(out, 0, 0);
+    }
+
+    if (watermark && isWatermarkEnabledForPhoto(photo)) {
+      applyWatermarkToCanvas(temp, getWatermarkPositionForPhoto(photo));
+    }
+    return temp;
+  }
+
   function buildLitCanvas() {
     if (!baseImageData) return null;
     const w = baseImageData.width;
@@ -2755,6 +2995,7 @@ ${addressBlock}
     const photo = getActivePhoto();
     if (photo) {
       photo.baseImageData = cloneImageData(baseImageData);
+      markPhotoPixelEdited(photo);
       photo.brightness = brightness.value;
       photo.contrast = contrast.value;
       clearPreMosaicSnapshot(photo);
@@ -3831,6 +4072,36 @@ ${addressBlock}
     }
   });
 
+  if (clearListingInfoBtn) {
+    clearListingInfoBtn.addEventListener("click", () => {
+      const hasPhotos = photos.length > 0;
+      const hasAddress = Boolean((propertyAddress?.value || "").trim());
+      if (!hasPhotos && !hasAddress && propertyType.value === "mansion") {
+        showToast("クリアする入力情報がありません");
+        return;
+      }
+      clearListingInfo();
+    });
+  }
+
+  if (homeBtn) {
+    homeBtn.addEventListener("click", () => {
+      const hasPhotos = photos.length > 0;
+      const hasAddress = Boolean((propertyAddress?.value || "").trim());
+      const hasType = propertyType.value !== "mansion";
+      if (!hasPhotos && !hasAddress && !hasType) {
+        setPanelTab("photos");
+        showToast("すでに初期画面です");
+        return;
+      }
+      const msg = hasPhotos
+        ? `写真 ${photos.length} 枚と入力情報を消して初期画面に戻しますか？`
+        : "入力情報を消して初期画面に戻しますか？";
+      if (!window.confirm(msg)) return;
+      returnToHomeScreen();
+    });
+  }
+
   applyNameBtn.addEventListener("click", () => {
     applyActivePhotoName();
   });
@@ -3933,6 +4204,7 @@ ${addressBlock}
   propertyAddress.addEventListener("blur", savePropertyAddress);
 
   restoreWatermarkPreference();
+  restoreOverwritePreference();
   loadWatermarkImage()
     .then(() => {
       if (baseImageData) renderEffects();
@@ -3944,6 +4216,9 @@ ${addressBlock}
       updateWatermarkPosUi();
       if (baseImageData) renderEffects();
     });
+  }
+  if (overwriteExisting) {
+    overwriteExisting.addEventListener("change", persistOverwritePreference);
   }
   if (watermarkPosPicker) {
     watermarkPosPicker.querySelectorAll(".watermark-pos-btn").forEach((btn) => {
@@ -4283,6 +4558,7 @@ ${addressBlock}
           const resized = await resizeCanvasHighQuality(src, w, h);
           const data = resized.getContext("2d").getImageData(0, 0, resized.width, resized.height);
           photo.baseImageData = data;
+          markPhotoPixelEdited(photo);
           changed += 1;
         } catch (err) {
           console.warn(err);
@@ -4765,6 +5041,7 @@ ${addressBlock}
       const photo = getActivePhoto();
       if (photo && baseImageData) {
         photo.baseImageData = cloneImageData(baseImageData);
+        markPhotoPixelEdited(photo);
       }
     }
     painting = false;
@@ -4894,9 +5171,16 @@ ${addressBlock}
 
   if (reloadAppBtn) {
     reloadAppBtn.addEventListener("click", () => {
-      window.location.reload();
+      const url = new URL(window.location.href);
+      url.searchParams.set("reload", String(Date.now()));
+      window.location.replace(url.toString());
     });
   }
+
+  if (appVersionEl) {
+    appVersionEl.textContent = `v${APP_VERSION}`;
+  }
+  document.title = `Lumen v${APP_VERSION} — Photo Editor`;
 
   resetBtn.addEventListener("click", () => {
     if (!sourceImage) return;
@@ -4950,39 +5234,71 @@ ${addressBlock}
   /**
    * JPEG で品質・解像度を自動調整し、maxBytes 以下でできるだけ上限に近いデータURLを返す
    */
-  function exportUnderLimit(sourceCanvas, maxBytes) {
+  function capExportDimensions(width, height, maxBytes) {
+    const longEdge = Math.max(width, height);
+    let cap = 4096;
+    if (maxBytes <= 8 * 1024) cap = 120;
+    else if (maxBytes <= 300 * 1024) cap = 960;
+    if (longEdge <= cap) return { width, height };
+    const scale = cap / longEdge;
+    return {
+      width: Math.max(1, Math.round(width * scale)),
+      height: Math.max(1, Math.round(height * scale)),
+    };
+  }
+
+  async function encodeCanvasJpeg(exportCanvas, quality) {
     const mime = "image/jpeg";
-    let width = sourceCanvas.width;
-    let height = sourceCanvas.height;
-
-    function encodeAtQuality(exportCanvas, quality) {
-      const url = exportCanvas.toDataURL(mime, quality);
-      return { url, size: dataUrlByteSize(url), quality };
+    if (typeof exportCanvas.toBlob === "function") {
+      const blob = await new Promise((resolve, reject) => {
+        exportCanvas.toBlob((b) => (b ? resolve(b) : reject(new Error("encode failed"))), mime, quality);
+      });
+      const url = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(blob);
+      });
+      return { url, size: blob.size, quality };
     }
+    const url = exportCanvas.toDataURL(mime, quality);
+    return { url, size: dataUrlByteSize(url), quality };
+  }
 
-    function findBestQuality(exportCanvas, w, h) {
-      let lo = 0.05;
-      let hi = 0.99;
+  async function exportUnderLimit(sourceCanvas, maxBytes) {
+    const capped = capExportDimensions(sourceCanvas.width, sourceCanvas.height, maxBytes);
+    let width = capped.width;
+    let height = capped.height;
+    const pixelCount = width * height;
+    const isSmall = pixelCount <= 120 * 120;
+    const qualitySteps = isSmall ? 5 : 8;
+    const polishStep = isSmall ? 0.012 : 0.006;
+    const maxAttempts = isSmall ? 4 : 6;
+
+    async function findBestQuality(exportCanvas, w, h) {
+      let lo = 0.2;
+      let hi = 0.92;
       let best = null;
 
-      for (let i = 0; i < 14; i += 1) {
+      for (let i = 0; i < qualitySteps; i += 1) {
         const quality = (lo + hi) / 2;
-        const candidate = encodeAtQuality(exportCanvas, quality);
+        const candidate = await encodeCanvasJpeg(exportCanvas, quality);
         if (candidate.size <= maxBytes) {
           best = { ...candidate, width: w, height: h };
           lo = quality;
         } else {
           hi = quality;
         }
+        if (i % 2 === 1) await yieldToUi();
       }
 
       if (!best) return null;
 
       let q = best.quality;
-      let step = 0.03;
-      while (step > 0.002) {
-        const tryQ = Math.min(0.99, q + step);
-        const candidate = encodeAtQuality(exportCanvas, tryQ);
+      let step = 0.04;
+      while (step > polishStep) {
+        const tryQ = Math.min(0.92, q + step);
+        const candidate = await encodeCanvasJpeg(exportCanvas, tryQ);
         if (candidate.size <= maxBytes) {
           if (candidate.size >= best.size) {
             best = { ...candidate, width: w, height: h };
@@ -4991,12 +5307,13 @@ ${addressBlock}
         } else {
           step /= 2;
         }
+        await yieldToUi();
       }
 
       return best;
     }
 
-    for (let attempt = 0; attempt < 16; attempt += 1) {
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       const w = Math.max(1, Math.round(width));
       const h = Math.max(1, Math.round(height));
       const scaled =
@@ -5012,11 +5329,12 @@ ${addressBlock}
       exportCtx.fillRect(0, 0, w, h);
       exportCtx.drawImage(scaled, 0, 0);
 
-      const best = findBestQuality(exportCanvas, w, h);
+      const best = await findBestQuality(exportCanvas, w, h);
       if (best) return best;
 
       width *= 0.85;
       height *= 0.85;
+      await yieldToUi();
     }
 
     const w = Math.max(1, Math.round(width));
@@ -5029,7 +5347,7 @@ ${addressBlock}
     exportCtx.fillStyle = "#ffffff";
     exportCtx.fillRect(0, 0, w, h);
     exportCtx.drawImage(scaled, 0, 0);
-    const fallback = encodeAtQuality(exportCanvas, 0.2);
+    const fallback = await encodeCanvasJpeg(exportCanvas, 0.2);
     return { ...fallback, width: w, height: h };
   }
 
@@ -5150,7 +5468,7 @@ ${addressBlock}
     return true;
   }
 
-  function assertExportNamesReady(photoList) {
+  function assertExportNamesReady(photoList, { forBatch = false } = {}) {
     const missing = photoList.filter((photo) => !getExportFileName(photo));
     if (missing.length) {
       const msg = "名前が未設定の写真があります。名前を設定してください";
@@ -5165,20 +5483,25 @@ ${addressBlock}
     }
 
     const duplicates = getDuplicateExportNames(photoList);
-    if (duplicates.length) {
-      const msg = `ファイル名が重複しています（${duplicates.join("、")}）。各写真の名前を変更してください`;
-      showToast(msg, { error: true });
-      fileHint.textContent = msg;
-      if (photoNameInput) {
-        nameField.hidden = false;
-        setPanelTab("photos");
-        photoNameInput.focus();
-        photoNameInput.select();
+    if (!duplicates.length) return true;
+
+    if (isOverwriteEnabled()) {
+      if (forBatch) {
+        showToast(`同名があります（${duplicates.join("、")}）。最後の写真で上書き保存します`);
       }
-      return false;
+      return true;
     }
 
-    return true;
+    const msg = `ファイル名が重複しています（${duplicates.join("、")}）。各写真の名前を変更するか、出力タブで上書きをオンにしてください`;
+    showToast(msg, { error: true });
+    fileHint.textContent = msg;
+    if (photoNameInput) {
+      nameField.hidden = false;
+      setPanelTab("photos");
+      photoNameInput.focus();
+      photoNameInput.select();
+    }
+    return false;
   }
 
   function isWatermarkEnabledForPhoto(photo) {
@@ -5188,22 +5511,39 @@ ${addressBlock}
   }
 
   function exportPhotoCanvas(photo, { watermark = true } = {}) {
+    if (canUseWatermarkOnlyExport(photo)) {
+      const img = photo.sourceImage;
+      const { w, h } = resolveTargetSize(img.naturalWidth, img.naturalHeight);
+      const { bright } = getPhotoAdjustments(photo);
+      const temp = canvasFromSourceImage(photo, w, h);
+      if (bright !== 0) {
+        applyBrightnessToCanvas(temp, bright);
+      }
+      if (watermark && isWatermarkEnabledForPhoto(photo)) {
+        applyWatermarkToCanvas(temp, getWatermarkPositionForPhoto(photo));
+      }
+      return temp;
+    }
+
     const data = photo.id === activePhotoId && baseImageData ? baseImageData : photo.baseImageData;
     if (!data) return null;
 
-    const bright = Number(photo.id === activePhotoId ? brightness.value : photo.brightness);
-    const contrastVal = Number(photo.id === activePhotoId ? contrast.value : photo.contrast);
-    const skyOpts =
-      photo.id === activePhotoId ? getSkyOptionsFromUi() : getSkyOptionsFromPhoto(photo);
-    const w = data.width;
-    const h = data.height;
-    const out = new ImageData(w, h);
-    processLitPixels(data, out.data, bright, contrastVal, skyOpts);
+    const { bright, contrastVal, skyOpts } = getPhotoAdjustments(photo);
+    const { w, h } = resolveTargetSize(data.width, data.height);
 
-    const temp = document.createElement("canvas");
-    temp.width = w;
-    temp.height = h;
-    temp.getContext("2d").putImageData(out, 0, 0);
+    let temp;
+    if (!needsLitProcessing(bright, contrastVal, skyOpts)) {
+      temp = scaleCanvasToExport(imageDataToCanvas(data), w, h);
+    } else {
+      const workingData = scaleImageData(data, w, h);
+      const out = new ImageData(w, h);
+      processLitPixels(workingData, out.data, bright, contrastVal, skyOpts);
+      temp = document.createElement("canvas");
+      temp.width = w;
+      temp.height = h;
+      temp.getContext("2d").putImageData(out, 0, 0);
+    }
+
     if (watermark && isWatermarkEnabledForPhoto(photo)) {
       applyWatermarkToCanvas(temp, getWatermarkPositionForPhoto(photo));
     }
@@ -5238,77 +5578,114 @@ ${addressBlock}
     }
   }
 
+  async function fileExistsInSaveDir(filename) {
+    if (!saveDirHandle) return false;
+    try {
+      await saveDirHandle.getFileHandle(filename);
+      return true;
+    } catch (err) {
+      if (err && err.name === "NotFoundError") return false;
+      throw err;
+    }
+  }
+
   async function saveToFolder(result, filename) {
     if (!saveDirHandle) {
       await pickSaveFolder();
-      if (!saveDirHandle) return false;
+      if (!saveDirHandle) return { ok: false };
     }
 
     const ok = await ensureDirPermission(saveDirHandle);
     if (!ok) {
       fileHint.textContent = "フォルダへの書き込み許可が必要です";
-      return false;
+      return { ok: false };
+    }
+
+    const exists = await fileExistsInSaveDir(filename);
+    if (exists && !isOverwriteEnabled()) {
+      const msg = `「${filename}」は既にあります。上書きする場合は「同名ファイルを上書き保存」をオンにしてください`;
+      showToast(msg, { error: true });
+      fileHint.textContent = msg;
+      return { ok: false };
     }
 
     const fileHandle = await saveDirHandle.getFileHandle(filename, { create: true });
     const writable = await fileHandle.createWritable();
     await writable.write(dataUrlToBlob(result.url));
     await writable.close();
-    return true;
+    return { ok: true, overwritten: exists };
   }
 
   async function saveImage({ forceDownload = false } = {}) {
     if (!baseImageData) return;
-    snapshotCurrent();
+    snapshotPhotoSettings();
     if (!persistActivePhotoName()) return;
     if (!assertExportNamesReady(photos)) return;
 
-    const lit = buildLitCanvas();
-    if (!lit) return;
-    const result = exportUnderLimit(lit, getActiveExportByteLimit());
     const active = getActivePhoto();
     const filename = getExportFileName(active);
     if (!filename) return;
 
-    if (!forceDownload && canUseFolderSave) {
-      try {
-        const saved = await saveToFolder(result, filename);
-        if (saved) {
-          const pathLabel = `${saveDirHandle.name}/${filename}`;
-          notifySuccess("save", `保存しました（${formatBytes(result.size)}）`, {
-            mode: "folder",
-            filename,
-            path: pathLabel,
-            bytes: result.size,
-            width: result.width,
-            height: result.height,
-          });
-          return;
-        }
-      } catch (err) {
-        if (err && err.name === "AbortError") return;
-        console.warn(err);
-        showToast("フォルダ保存に失敗したためダウンロードします", { error: true });
-        fileHint.textContent = "フォルダ保存に失敗したためダウンロードします";
-      }
-    }
-
-    triggerDownload(result, filename);
-    const type = forceDownload ? "download" : "save";
-    notifySuccess(type, `ダウンロードしました（${formatBytes(result.size)}）`, {
-      mode: "download",
-      filename,
-      bytes: result.size,
-      width: result.width,
-      height: result.height,
+    saveBtn.disabled = true;
+    downloadBtn.disabled = true;
+    const fastSave = canUseWatermarkOnlyExport(active);
+    setImportLoading(true, {
+      title: "保存しています",
+      detail: fastSave ? "透かしを付けて書き出し中…" : "画像を書き出し中…",
     });
+
+    try {
+      await yieldToUi();
+      const exportCanvas = await buildExportCanvas(active);
+      if (!exportCanvas) return;
+      await yieldToUi();
+      const result = await exportUnderLimit(exportCanvas, getActiveExportByteLimit());
+
+      if (!forceDownload && canUseFolderSave) {
+        try {
+          const saved = await saveToFolder(result, filename);
+          if (saved.ok) {
+            const pathLabel = `${saveDirHandle.name}/${filename}`;
+            const actionLabel = saved.overwritten ? "上書き保存しました" : "保存しました";
+            notifySuccess("save", `${actionLabel}（${formatBytes(result.size)}）`, {
+              mode: "folder",
+              filename,
+              path: pathLabel,
+              bytes: result.size,
+              width: result.width,
+              height: result.height,
+            });
+            return;
+          }
+        } catch (err) {
+          if (err && err.name === "AbortError") return;
+          console.warn(err);
+          showToast("フォルダ保存に失敗したためダウンロードします", { error: true });
+          fileHint.textContent = "フォルダ保存に失敗したためダウンロードします";
+        }
+      }
+
+      triggerDownload(result, filename);
+      const type = forceDownload ? "download" : "save";
+      notifySuccess(type, `ダウンロードしました（${formatBytes(result.size)}）`, {
+        mode: "download",
+        filename,
+        bytes: result.size,
+        width: result.width,
+        height: result.height,
+      });
+    } finally {
+      setImportLoading(false);
+      saveBtn.disabled = false;
+      downloadBtn.disabled = false;
+    }
   }
 
   async function saveAllImages({ forceDownload = false } = {}) {
     if (!photos.length) return;
-    snapshotCurrent();
+    snapshotPhotoSettings();
     if (!persistActivePhotoName()) return;
-    if (!assertExportNamesReady(photos)) return;
+    if (!assertExportNamesReady(photos, { forBatch: true })) return;
 
     if (!forceDownload && canUseFolderSave && !saveDirHandle) {
       await pickSaveFolder();
@@ -5318,44 +5695,66 @@ ${addressBlock}
     let saved = 0;
     let failed = 0;
 
-    for (let i = 0; i < photos.length; i += 1) {
-      const photo = photos[i];
-      const lit = exportPhotoCanvas(photo);
-      if (!lit) {
-        failed += 1;
-        continue;
-      }
-      const result = exportUnderLimit(lit, getActiveExportByteLimit());
-      const filename = getExportFileName(photo);
-      if (!filename) {
-        failed += 1;
-        continue;
-      }
+    saveAllBtn.disabled = true;
+    downloadAllBtn.disabled = true;
+    saveBtn.disabled = true;
+    downloadBtn.disabled = true;
+    setImportLoading(true, { title: "一括保存しています", detail: `0/${photos.length}` });
 
-      try {
-        if (!forceDownload && canUseFolderSave) {
-          const ok = await saveToFolder(result, filename);
-          if (ok) {
-            saved += 1;
-            continue;
-          }
+    try {
+      for (let i = 0; i < photos.length; i += 1) {
+        const photo = photos[i];
+        setImportLoading(true, {
+          title: "一括保存しています",
+          detail: `${i + 1}/${photos.length}`,
+          progress: Math.round(((i + 1) / photos.length) * 100),
+        });
+
+        const exportCanvas = await buildExportCanvas(photo);
+        if (!exportCanvas) {
+          failed += 1;
+          continue;
         }
-        triggerDownload(result, filename);
-        saved += 1;
-        // 連続ダウンロードがブラウザに止められないよう少し待つ
-        await new Promise((r) => setTimeout(r, 180));
-      } catch (err) {
-        console.warn(err);
-        failed += 1;
-      }
-    }
+        await yieldToUi();
+        const result = await exportUnderLimit(exportCanvas, getActiveExportByteLimit());
+        const filename = getExportFileName(photo);
+        if (!filename) {
+          failed += 1;
+          continue;
+        }
 
-    const mode = forceDownload ? "download" : "save";
-    const message =
-      failed > 0
-        ? `${saved}枚完了（${failed}枚失敗）`
-        : `${saved}枚を${forceDownload ? "ダウンロード" : "保存"}しました`;
-    notifySuccess(mode, message, { count: saved, failed });
+        try {
+          if (!forceDownload && canUseFolderSave) {
+            const saveResult = await saveToFolder(result, filename);
+            if (saveResult.ok) {
+              saved += 1;
+              continue;
+            }
+          }
+          triggerDownload(result, filename);
+          saved += 1;
+          await new Promise((r) => setTimeout(r, 180));
+        } catch (err) {
+          console.warn(err);
+          failed += 1;
+        }
+
+        if (i % 2 === 1) await yieldToUi();
+      }
+
+      const mode = forceDownload ? "download" : "save";
+      const message =
+        failed > 0
+          ? `${saved}枚完了（${failed}枚失敗）`
+          : `${saved}枚を${forceDownload ? "ダウンロード" : "保存"}しました`;
+      notifySuccess(mode, message, { count: saved, failed });
+    } finally {
+      setImportLoading(false);
+      saveAllBtn.disabled = false;
+      downloadAllBtn.disabled = false;
+      saveBtn.disabled = false;
+      downloadBtn.disabled = false;
+    }
   }
 
   pickFolderBtn.addEventListener("click", () => {

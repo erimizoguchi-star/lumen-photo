@@ -12,7 +12,7 @@
       href="https://fonts.googleapis.com/css2?family=Syne:wght@500;700;800&family=IBM+Plex+Sans+JP:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=3" />
+    <link rel="stylesheet" href="styles.css?v=5" />
   </head>
   <body>
     <div class="app">
@@ -20,8 +20,23 @@
         <div class="brand">
           <span class="brand-mark" aria-hidden="true"></span>
           <span class="brand-name">Lumen</span>
+          <span class="app-version" id="appVersion" title="アプリのバージョン"></span>
         </div>
         <div class="topbar-actions">
+          <button
+            type="button"
+            class="icon-btn topbar-icon-btn"
+            id="homeBtn"
+            title="初期画面に戻す"
+            aria-label="初期画面に戻す"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M12 3.2 3.8 10a1 1 0 0 0-.3.7V20a1.5 1.5 0 0 0 1.5 1.5H9a1 1 0 0 0 1-1v-4.5h4V20.5a1 1 0 0 0 1 1h4a1.5 1.5 0 0 0 1.5-1.5v-9.3a1 1 0 0 0-.3-.7L12 3.2Z"
+              />
+            </svg>
+          </button>
           <button type="button" class="btn ghost" id="reloadAppBtn" title="アプリを再読み込み">再読み込み</button>
           <button type="button" class="btn ghost" id="resetBtn" disabled>リセット</button>
           <button type="button" class="btn ghost" id="downloadAllBtn" disabled hidden title="すべての写真をダウンロード">すべてDL</button>
@@ -64,6 +79,24 @@
                 </div>
                 <p class="hint">保存・ダウンロード時のファイル名になります</p>
               </label>
+
+              <div class="listing-info-head">
+                <p class="pane-desc">物件情報</p>
+                <button
+                  type="button"
+                  class="icon-btn"
+                  id="clearListingInfoBtn"
+                  title="住所・名前・キャプションをクリア"
+                  aria-label="入力情報をクリア"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      fill="currentColor"
+                      d="M16 9h-2.4l-1.1-2.2a1 1 0 0 0-.9-.55H8.3a1 1 0 0 0-.9.55L6.3 9H4a1 1 0 1 0 0 2h12a1 1 0 1 0 0-2Zm-1.2 4.2-1-2a1 1 0 0 0-.9-.55h-2.8a1 1 0 0 0-.9.55l-1 2A1 1 0 0 0 9 15h6a1 1 0 0 0 .8-1.8ZM19 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2Z"
+                    />
+                  </svg>
+                </button>
+              </div>
 
               <label class="field address-field" id="addressField">
                 <span>物件種別</span>
@@ -163,6 +196,11 @@
                 <button type="button" class="btn secondary full" id="pickFolderBtn">
                   フォルダを選ぶ
                 </button>
+                <label class="check">
+                  <input type="checkbox" id="overwriteExisting" checked />
+                  <span>同名ファイルを上書き保存</span>
+                </label>
+                <p class="hint">保存先に同じ名前のファイルがある場合、内容を置き換えます</p>
               </div>
             </section>
 
@@ -404,6 +442,6 @@
 
     <div class="toast" id="toast" hidden role="status" aria-live="polite"></div>
 
-    <script src="app.js?v=12"></script>
+    <script src="app.js?v=20"></script>
   </body>
 </html>
