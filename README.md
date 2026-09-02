@@ -2,7 +2,7 @@
 
 物件写真のサイズ変更・トリミング・明るさ調整と、登録サイト用キャプション作成を行うブラウザアプリです。
 
-- GitHub（private）: https://github.com/erimizoguchi-star/lumen-photo
+- GitHub（public）: https://github.com/erimizoguchi-star/lumen-photo
 
 ## 起動
 
