@@ -159,16 +159,112 @@ input {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  padding: 1.25rem;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
   align-self: start;
   position: sticky;
   top: 5.25rem;
   max-height: calc(100vh - 6.5rem);
-  overflow: auto;
+  min-height: 0;
+  overflow: hidden;
   animation: rise 0.55s ease both;
+}
+
+.panel-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.35rem;
+  padding: 0.85rem 0.85rem 0.65rem;
+  border-bottom: 1px solid var(--line);
+  background: rgba(250, 252, 250, 0.95);
+  flex-shrink: 0;
+}
+
+.panel-tab {
+  border: 1px solid var(--line);
+  background: transparent;
+  border-radius: 10px;
+  padding: 0.5rem 0.2rem;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease;
+}
+
+.panel-tab:hover:not(:disabled) {
+  border-color: rgba(15, 122, 90, 0.35);
+  background: rgba(15, 122, 90, 0.06);
+}
+
+.panel-tab.active {
+  background: var(--ink);
+  color: #f4f8f5;
+  border-color: var(--ink);
+}
+
+.panel-tab:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 1rem 1.15rem 1.25rem;
+}
+
+.panel-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  animation: fade 0.28s ease both;
+}
+
+.panel-pane[hidden] {
+  display: none !important;
+}
+
+.panel-empty {
+  margin: 0.5rem 0;
+  padding: 1.25rem 0.85rem;
+  border-radius: 12px;
+  border: 1px dashed var(--line);
+  background: rgba(20, 32, 26, 0.03);
+  font-size: 0.88rem;
+  line-height: 1.55;
+  color: var(--muted);
+  text-align: center;
+}
+
+.hint-details {
+  margin: 0;
+}
+
+.hint-details summary {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--accent);
+  cursor: pointer;
+  list-style: none;
+}
+
+.hint-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.hint-details summary::before {
+  content: "▸ ";
+}
+
+.hint-details[open] summary::before {
+  content: "▾ ";
+}
+
+.hint-details .hint {
+  margin-top: 0.45rem;
 }
 
 .tool-block h2 {
@@ -214,6 +310,158 @@ input {
   color: var(--muted);
 }
 
+.watermark-pos {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.35rem;
+}
+
+.watermark-pos-btn {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.65);
+  border-radius: 10px;
+  padding: 0.5rem 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.watermark-pos-btn:hover {
+  border-color: rgba(15, 122, 90, 0.35);
+  background: rgba(15, 122, 90, 0.06);
+}
+
+.watermark-pos-btn.is-active {
+  border-color: var(--accent);
+  background: rgba(15, 122, 90, 0.12);
+  color: var(--accent);
+  box-shadow: 0 0 0 1px rgba(15, 122, 90, 0.15);
+}
+
+.watermark-pos-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.watermark-pos-btn:disabled:hover {
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.65);
+}
+
+.export-preset-box {
+  margin-bottom: 0.85rem;
+}
+
+.export-preset {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.35rem;
+}
+
+.export-preset-btn {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.65);
+  border-radius: 10px;
+  padding: 0.5rem 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.export-preset-btn:hover {
+  border-color: rgba(15, 122, 90, 0.35);
+  background: rgba(15, 122, 90, 0.06);
+}
+
+.export-preset-btn.is-active {
+  border-color: var(--accent);
+  background: rgba(15, 122, 90, 0.12);
+  color: var(--accent);
+  box-shadow: 0 0 0 1px rgba(15, 122, 90, 0.15);
+}
+
+.hide-brush-mode {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.35rem;
+}
+
+.hide-brush-mode-btn {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.65);
+  border-radius: 10px;
+  padding: 0.5rem 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.hide-brush-mode-btn:hover:not(:disabled) {
+  border-color: rgba(15, 122, 90, 0.35);
+  background: rgba(15, 122, 90, 0.06);
+}
+
+.hide-brush-mode-btn.is-active {
+  border-color: var(--accent);
+  background: rgba(15, 122, 90, 0.12);
+  color: var(--accent);
+  box-shadow: 0 0 0 1px rgba(15, 122, 90, 0.15);
+}
+
+.export-preset-grid {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.export-preset-btn {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.65);
+  border-radius: 10px;
+  padding: 0.5rem 0.55rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.export-preset-btn:hover {
+  border-color: rgba(15, 122, 90, 0.35);
+  background: rgba(15, 122, 90, 0.06);
+}
+
+.export-preset-btn.is-active {
+  border-color: var(--accent);
+  background: rgba(15, 122, 90, 0.12);
+  color: var(--accent);
+  box-shadow: 0 0 0 1px rgba(15, 122, 90, 0.15);
+}
+
+.hide-brush-mode-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.field.is-disabled {
+  opacity: 0.55;
+}
+
+#canvas.tool-hide-restore {
+  cursor: none;
+}
+
+.brush-cursor.is-restore {
+  border-color: rgba(220, 90, 60, 0.85);
+  background: rgba(220, 90, 60, 0.12);
+}
+
 .gallery {
   margin-top: 1rem;
 }
@@ -244,7 +492,7 @@ input {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
-  max-height: 220px;
+  max-height: 180px;
   overflow: auto;
 }
 
@@ -341,11 +589,11 @@ input {
 }
 
 .name-field {
-  margin-top: 1rem;
+  margin-top: 0.35rem;
 }
 
 .address-field {
-  margin-top: 1rem;
+  margin-top: 0;
 }
 
 .address-field input,
@@ -385,9 +633,6 @@ input {
 }
 
 .caption-box {
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--line);
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
@@ -1006,6 +1251,10 @@ input {
 
   .stage {
     min-height: 58vh;
+  }
+
+  .panel-tabs {
+    grid-template-columns: repeat(2, 1fr);
   }
 
   .tool-tabs {

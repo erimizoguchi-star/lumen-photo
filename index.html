@@ -12,7 +12,7 @@
       href="https://fonts.googleapis.com/css2?family=Syne:wght@500;700;800&family=IBM+Plex+Sans+JP:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=2" />
+    <link rel="stylesheet" href="styles.css?v=3" />
   </head>
   <body>
     <div class="app">
@@ -33,117 +33,140 @@
 
       <main class="workspace">
         <aside class="panel">
-          <section class="tool-block">
-            <h2>写真</h2>
-            <label class="upload-btn" for="fileInput">
-              <span>写真を追加</span>
-              <input id="fileInput" type="file" accept="image/*,.heic,.heif" multiple hidden />
-            </label>
-            <p class="hint" id="fileHint">複数選択可 · JPEG / PNG / WEBP（HEICはSafari推奨）</p>
+          <nav class="panel-tabs" role="tablist" aria-label="操作パネル">
+            <button type="button" class="panel-tab active" data-panel="photos" role="tab" aria-selected="true">写真</button>
+            <button type="button" class="panel-tab" data-panel="edit" role="tab" aria-selected="false" disabled>編集</button>
+            <button type="button" class="panel-tab" data-panel="caption" role="tab" aria-selected="false" disabled>キャプション</button>
+            <button type="button" class="panel-tab" data-panel="output" role="tab" aria-selected="false">出力</button>
+          </nav>
 
-            <div class="gallery" id="gallery" hidden>
-              <div class="gallery-head">
-                <span class="gallery-count" id="galleryCount">0枚</span>
-                <button type="button" class="btn ghost gallery-clear" id="clearAllBtn">すべて削除</button>
-              </div>
-              <ul class="gallery-list" id="galleryList" aria-label="アップロードした写真"></ul>
-            </div>
-
-            <label class="field name-field" id="nameField" hidden>
-              <span>名前</span>
-              <div class="name-edit">
-                <input type="text" id="photoNameInput" autocomplete="off" spellcheck="false" />
-                <button type="button" class="btn secondary" id="applyNameBtn">変更</button>
-              </div>
-              <p class="hint">保存・ダウンロード時のファイル名になります</p>
-            </label>
-
-            <label class="field address-field" id="addressField">
-              <span>物件種別</span>
-              <select id="propertyType">
-                <option value="mansion">マンション売買</option>
-                <option value="house">戸建て売買</option>
-                <option value="land">土地売買</option>
-              </select>
-              <p class="hint">種別に合わせてキャプションの言い回し・カテゴリが変わります</p>
-            </label>
-
-            <label class="field address-field">
-              <span>物件住所（任意）</span>
-              <input type="text" id="propertyAddress" autocomplete="street-address" placeholder="例）大阪市淀川区西三国４丁目" />
-              <p class="hint">周辺環境キャプションの参考になります（徒歩分数などの断定はしません）</p>
-            </label>
-
-            <div class="caption-box" id="captionBox" hidden>
-              <p class="pane-desc">キャプション（登録サイト用）</p>
-
-              <label class="field">
-                <span>カテゴリ（生成前に選択）</span>
-                <select id="captionCategory"></select>
+          <div class="panel-body">
+            <section class="panel-pane active" data-panel-pane="photos" role="tabpanel">
+              <label class="upload-btn" for="fileInput">
+                <span>写真を追加</span>
+                <input id="fileInput" type="file" accept="image/*,.heic,.heif" multiple hidden />
               </label>
-              <p class="hint">先にカテゴリを選ぶと、写真の見方を絞れてコメントが的確になります。AIは写真をよく観察してから生成します。</p>
+              <p class="hint" id="fileHint">複数選択可 · JPEG / PNG / WEBP（HEICはSafari推奨）</p>
 
-              <div class="ai-box">
-                <p class="pane-desc">AIで写真から生成</p>
-                <label class="field">
-                  <span>Gemini APIキー</span>
-                  <div class="name-edit">
-                    <input type="password" id="geminiApiKey" autocomplete="off" placeholder="AIza…（ブラウザにのみ保存）" />
-                    <button type="button" class="btn secondary" id="verifyApiKeyBtn">確認</button>
-                  </div>
-                </label>
-                <p class="hint" id="apiKeyStatus"></p>
-                <p class="hint">
-                  <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>
-                  で無料キーを取得できます。写真は生成のため Google に送信されます。
-                </p>
-                <div class="btn-row caption-actions">
-                  <button type="button" class="btn primary" id="generateCaptionBtn">この写真から生成</button>
-                  <button type="button" class="btn secondary" id="generateAllCaptionsBtn">全写真を生成</button>
+              <div class="gallery" id="gallery" hidden>
+                <div class="gallery-head">
+                  <span class="gallery-count" id="galleryCount">0枚</span>
+                  <button type="button" class="btn ghost gallery-clear" id="clearAllBtn">すべて削除</button>
                 </div>
-                <p class="hint" id="aiCaptionStatus"></p>
+                <ul class="gallery-list" id="galleryList" aria-label="アップロードした写真"></ul>
               </div>
 
-              <label class="field">
-                <span>定型文を挿入（任意）</span>
-                <select id="captionTemplate">
-                  <option value="">HOUSEDO風の定型文から選ぶ</option>
+              <label class="field name-field" id="nameField" hidden>
+                <span>名前</span>
+                <div class="name-edit">
+                  <input type="text" id="photoNameInput" autocomplete="off" spellcheck="false" />
+                  <button type="button" class="btn secondary" id="applyNameBtn">変更</button>
+                </div>
+                <p class="hint">保存・ダウンロード時のファイル名になります</p>
+              </label>
+
+              <label class="field address-field" id="addressField">
+                <span>物件種別</span>
+                <select id="propertyType">
+                  <option value="mansion">マンション売買</option>
+                  <option value="house">戸建て売買</option>
+                  <option value="land">土地売買</option>
                 </select>
               </label>
-              <label class="field">
-                <span>キャプション（《杏栄》込み） <em id="captionCountLabel">4</em>/20</span>
-                <div class="caption-input-wrap">
-                  <span class="caption-prefix" aria-hidden="true">《杏栄》</span>
-                  <textarea id="captionInput" rows="2" maxlength="16" placeholder="例）対面キッチン"></textarea>
+
+              <label class="field address-field">
+                <span>物件住所（任意）</span>
+                <input type="text" id="propertyAddress" autocomplete="street-address" placeholder="例）大阪市淀川区西三国４丁目" />
+              </label>
+            </section>
+
+            <section class="panel-pane" data-panel-pane="caption" role="tabpanel" hidden>
+              <p class="panel-empty" id="captionEmpty">写真を選択するとキャプションを編集できます</p>
+
+              <div class="caption-box" id="captionBox" hidden>
+                <label class="field">
+                  <span>カテゴリ（生成前に選択）</span>
+                  <select id="captionCategory"></select>
+                </label>
+
+                <details class="hint-details">
+                  <summary>カテゴリの選び方</summary>
+                  <p class="hint">先にカテゴリを選ぶと、写真の見方を絞れてコメントが的確になります。</p>
+                </details>
+
+                <div class="ai-box">
+                  <p class="pane-desc">AIで写真から生成</p>
+                  <label class="field">
+                    <span>Gemini APIキー</span>
+                    <div class="name-edit">
+                      <input type="password" id="geminiApiKey" autocomplete="off" placeholder="AIza…（ブラウザにのみ保存）" />
+                      <button type="button" class="btn secondary" id="verifyApiKeyBtn">確認</button>
+                    </div>
+                  </label>
+                  <p class="hint" id="apiKeyStatus"></p>
+                  <details class="hint-details">
+                    <summary>APIキーの取得方法</summary>
+                    <p class="hint">
+                      <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>
+                      で無料キーを取得できます。写真は生成のため Google に送信されます。
+                    </p>
+                  </details>
+                  <div class="btn-row caption-actions">
+                    <button type="button" class="btn primary" id="generateCaptionBtn">この写真から生成</button>
+                    <button type="button" class="btn secondary" id="generateAllCaptionsBtn">全写真を生成</button>
+                  </div>
+                  <p class="hint" id="aiCaptionStatus"></p>
                 </div>
-                <p class="hint">《杏栄》を含めて合計20文字以内です</p>
-              </label>
-              <div class="btn-row caption-actions">
-                <button type="button" class="btn secondary" id="copyCaptionBtn">この文をコピー</button>
-                <button type="button" class="btn ghost" id="clearCaptionBtn">クリア</button>
+
+                <label class="field">
+                  <span>定型文を挿入（任意）</span>
+                  <select id="captionTemplate">
+                    <option value="">HOUSEDO風の定型文から選ぶ</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>キャプション（《杏栄》込み） <em id="captionCountLabel">4</em>/20</span>
+                  <div class="caption-input-wrap">
+                    <span class="caption-prefix" aria-hidden="true">《杏栄》</span>
+                    <textarea id="captionInput" rows="2" maxlength="16" placeholder="例）対面キッチン"></textarea>
+                  </div>
+                  <p class="hint">《杏栄》を含めて合計20文字以内です</p>
+                </label>
+                <div class="btn-row caption-actions">
+                  <button type="button" class="btn secondary" id="copyCaptionBtn">この文をコピー</button>
+                  <button type="button" class="btn ghost" id="clearCaptionBtn">クリア</button>
+                </div>
+                <button type="button" class="btn primary full" id="copyAllCaptionsBtn">全写真のキャプションをコピー</button>
+                <button type="button" class="btn ghost full" id="downloadCaptionsBtn">キャプション一覧を保存</button>
               </div>
-              <button type="button" class="btn primary full" id="copyAllCaptionsBtn">全写真のキャプションをコピー</button>
-              <button type="button" class="btn ghost full" id="downloadCaptionsBtn">キャプション一覧を保存</button>
-              <p class="hint">SUUMO・HOME'S・自社サイト等の写真コメント欄に貼り付けできます</p>
-            </div>
+            </section>
 
-            <div class="save-folder" id="saveFolderBlock">
-              <p class="pane-desc">出力設定</p>
-              <label class="check">
-                <input type="checkbox" id="watermarkEnabled" checked />
-                <span>会社ロゴを透かしで入れる（左上）</span>
-              </label>
-              <p class="hint">プレビュー・保存・ダウンロード時に KYOUEI ロゴを重ねます</p>
-              <p class="pane-desc">保存先フォルダ</p>
-              <p class="hint" id="folderHint">未設定（初回に選択）</p>
-              <button type="button" class="btn secondary full" id="pickFolderBtn">
-                フォルダを選ぶ
-              </button>
-            </div>
-          </section>
+            <section class="panel-pane" data-panel-pane="output" role="tabpanel" hidden>
+              <div class="save-folder" id="saveFolderBlock">
+                <p class="pane-desc">透かし</p>
+                <label class="check">
+                  <input type="checkbox" id="watermarkEnabled" checked />
+                  <span>会社ロゴを透かしで入れる</span>
+                </label>
+                <label class="field">
+                  <span>ロゴの位置</span>
+                  <div class="watermark-pos" id="watermarkPosPicker" role="group" aria-label="ロゴの位置">
+                    <button type="button" class="watermark-pos-btn is-active" data-pos="top-left" aria-pressed="true">左上</button>
+                    <button type="button" class="watermark-pos-btn" data-pos="top-right" aria-pressed="false">右上</button>
+                    <button type="button" class="watermark-pos-btn" data-pos="bottom-left" aria-pressed="false">左下</button>
+                    <button type="button" class="watermark-pos-btn" data-pos="bottom-right" aria-pressed="false">右下</button>
+                  </div>
+                </label>
+                <p class="hint">プレビュー・保存・ダウンロードに反映されます。写真ごとに位置を変えられます。</p>
+                <p class="pane-desc">保存先フォルダ</p>
+                <p class="hint" id="folderHint">未設定（初回に選択）</p>
+                <button type="button" class="btn secondary full" id="pickFolderBtn">
+                  フォルダを選ぶ
+                </button>
+              </div>
+            </section>
 
-          <section class="tool-block" id="toolsSection" hidden>
-            <h2>ツール</h2>
+            <section class="panel-pane" data-panel-pane="edit" id="toolsSection" role="tabpanel" hidden>
             <div class="tool-tabs" role="tablist">
               <button type="button" class="tool-tab active" data-tool="resize">サイズ</button>
               <button type="button" class="tool-tab" data-tool="crop">トリミング</button>
@@ -154,6 +177,17 @@
             </div>
 
             <div class="tool-pane active" data-pane="resize">
+              <div class="batch-box export-preset-box">
+                <p class="pane-desc">IRI 登録サイズ</p>
+                <div class="export-preset" id="exportPresetPicker" role="group" aria-label="IRI登録サイズ">
+                  <button type="button" class="export-preset-btn is-active" data-preset="iri-thumb" aria-pressed="true">見出写真</button>
+                  <button type="button" class="export-preset-btn" data-preset="iri-photo" aria-pressed="false">物件写真</button>
+                </div>
+                <p class="hint" id="exportPresetHint">IRI公式ガイドラインに基づくサイズです</p>
+                <p class="hint">
+                  <a href="https://www.iri.ne.jp/kensaku/member/info_supo/images/Guideline.pdf" target="_blank" rel="noopener noreferrer">IRI 画像ガイドライン（PDF）</a>
+                </p>
+              </div>
               <label class="field">
                 <span>幅 (px)</span>
                 <input type="number" id="resizeWidth" min="1" step="1" />
@@ -226,6 +260,13 @@
             <div class="tool-pane" data-pane="hide">
               <p class="pane-desc">不要な部分をなぞると、大きめのモザイクで隠します。</p>
               <label class="field">
+                <span>ブラシのモード</span>
+                <div class="hide-brush-mode" id="hideBrushModePicker" role="group" aria-label="ブラシのモード">
+                  <button type="button" class="hide-brush-mode-btn is-active" data-mode="mosaic" aria-pressed="true">隠す</button>
+                  <button type="button" class="hide-brush-mode-btn" data-mode="restore" aria-pressed="false">復元</button>
+                </div>
+              </label>
+              <label class="field">
                 <span>ブラシサイズ <em id="brushSizeLabel">48</em></span>
                 <input type="range" id="brushSize" min="16" max="120" value="48" />
               </label>
@@ -233,7 +274,7 @@
                 <span>モザイクサイズ <em id="mosaicSizeLabel">28</em>px</span>
                 <input type="range" id="mosaicSize" min="12" max="64" value="28" />
               </label>
-              <p class="hint">ドラッグで隠す・二本指で移動・ピンチで拡大</p>
+              <p class="hint">隠す＝モザイク／復元＝かけ過ぎた部分だけ元に戻す。二本指で移動・ピンチで拡大。</p>
 
               <div class="batch-box auto-mosaic-box">
                 <p class="pane-desc">自動モザイク</p>
@@ -247,9 +288,11 @@
                 </label>
                 <button type="button" class="btn primary full" id="autoMosaicBtn">検知してモザイク</button>
                 <button type="button" class="btn secondary full" id="autoMosaicAllBtn">全写真に自動モザイク</button>
+                <button type="button" class="btn ghost full" id="undoMosaicBtn" disabled>モザイクを元に戻す</button>
                 <p class="hint" id="autoMosaicStatus">
-                  人物は端末内で検知。ナンバーは Gemini APIキーがあると精度が上がります（キーなしでも車の下部を推定）。
+                  端末内AI＋Gemini APIキーで併用検知（キーありで精度向上）。初回はモデル読込に時間がかかります。
                 </p>
+                <p class="hint">手動・自動モザイクの直前の状態に戻せます。復元ブラシで一部だけ直すこともできます。</p>
               </div>
             </div>
 
@@ -322,7 +365,8 @@
               <button type="button" class="btn secondary full" id="skyApplyAllBtn">全写真に同じ設定</button>
               <p class="hint">画像上部からつながる空だけを対象にします。前景の光で建物に空の色味を反映できます。</p>
             </div>
-          </section>
+            </section>
+          </div>
         </aside>
 
         <section class="stage" id="stage">
@@ -360,6 +404,6 @@
 
     <div class="toast" id="toast" hidden role="status" aria-live="polite"></div>
 
-    <script src="app.js?v=2"></script>
+    <script src="app.js?v=12"></script>
   </body>
 </html>

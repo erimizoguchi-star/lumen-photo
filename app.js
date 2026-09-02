@@ -30,6 +30,7 @@
   const photoNameInput = document.getElementById("photoNameInput");
   const applyNameBtn = document.getElementById("applyNameBtn");
   const captionBox = document.getElementById("captionBox");
+  const captionEmpty = document.getElementById("captionEmpty");
   const captionCategory = document.getElementById("captionCategory");
   const captionTemplate = document.getElementById("captionTemplate");
   const captionInput = document.getElementById("captionInput");
@@ -38,6 +39,7 @@
   const copyAllCaptionsBtn = document.getElementById("copyAllCaptionsBtn");
   const downloadCaptionsBtn = document.getElementById("downloadCaptionsBtn");
   const watermarkEnabled = document.getElementById("watermarkEnabled");
+  const watermarkPosPicker = document.getElementById("watermarkPosPicker");
   const geminiApiKey = document.getElementById("geminiApiKey");
   const verifyApiKeyBtn = document.getElementById("verifyApiKeyBtn");
   const apiKeyStatus = document.getElementById("apiKeyStatus");
@@ -59,6 +61,8 @@
   const batchResizeBtn = document.getElementById("batchResizeBtn");
   const batchResizeSaveBtn = document.getElementById("batchResizeSaveBtn");
   const batchResizeDownloadBtn = document.getElementById("batchResizeDownloadBtn");
+  const exportPresetPicker = document.getElementById("exportPresetPicker");
+  const exportPresetHint = document.getElementById("exportPresetHint");
 
   const brushSize = document.getElementById("brushSize");
   const brushSizeLabel = document.getElementById("brushSizeLabel");
@@ -68,6 +72,8 @@
   const autoDetectPlates = document.getElementById("autoDetectPlates");
   const autoMosaicBtn = document.getElementById("autoMosaicBtn");
   const autoMosaicAllBtn = document.getElementById("autoMosaicAllBtn");
+  const undoMosaicBtn = document.getElementById("undoMosaicBtn");
+  const hideBrushModePicker = document.getElementById("hideBrushModePicker");
   const autoMosaicStatus = document.getElementById("autoMosaicStatus");
 
   const brightness = document.getElementById("brightness");
@@ -188,6 +194,8 @@
   let skyMaskCache = { key: "", mask: null };
   let aspectRatio = 1;
   let activeTool = "resize";
+  let activePanelTab = "photos";
+  let hideBrushMode = "mosaic";
   let painting = false;
   let lastPoint = null;
   /** 1 = ステージに収まるサイズ */
@@ -214,6 +222,7 @@
    *   sourceImage: HTMLImageElement,
    *   thumbUrl: string,
    *   baseImageData: ImageData | null,
+   *   preMosaicImageData: ImageData | null,
    *   brightness: string,
    *   contrast: string,
    *   skyPreset: string,
@@ -226,6 +235,7 @@
    *   skyEdgeFade: string,
    *   skyForeground: string,
    *   skyKeepClouds: boolean,
+   *   watermarkPosition: string,
    *   captionCategory: string,
    *   caption: string,
    * }>} */
@@ -241,6 +251,38 @@
   const CAPTION_PREFIX = "《杏栄》";
   const CAPTION_BODY_MAX = CAPTION_MAX_LEN - Array.from(CAPTION_PREFIX).length;
   const PROPERTY_TYPE_STORAGE = "lumen-property-type";
+  const EXPORT_PRESET_STORAGE = "lumen-export-preset";
+  const IRI_GUIDELINE_URL =
+    "https://www.iri.ne.jp/kensaku/member/info_supo/images/Guideline.pdf";
+  const DEFAULT_EXPORT_PRESET = "iri-thumb";
+
+  /** @type {Record<string, { label: string, kind: string, maxW: number, maxH: number, minW: number, minH: number, maxBytes: number, hint: string, allowUpscale?: boolean }>} */
+  const EXPORT_PRESETS = {
+    "iri-thumb": {
+      label: "IRI 見出写真",
+      kind: "iri-box",
+      maxW: 90,
+      maxH: 90,
+      minW: 50,
+      minH: 50,
+      maxBytes: 5 * 1024,
+      hint: "50〜90px・5KB以内（外観写真の縮小版）",
+      allowUpscale: false,
+    },
+    "iri-photo": {
+      label: "IRI 物件写真",
+      kind: "iri-box",
+      maxW: 800,
+      maxH: 800,
+      minW: 400,
+      minH: 400,
+      maxBytes: 250 * 1024,
+      hint: "400〜800px・250KB以内（外観・追加・間取・地図等）",
+      allowUpscale: true,
+    },
+  };
+
+  let activeExportPreset = DEFAULT_EXPORT_PRESET;
 
   /** @type {Record<string, { name: string, zenith: {r:number,g:number,b:number}, horizon: {r:number,g:number,b:number}, glow: {r:number,g:number,b:number,strength:number}|null, clouds: number, warmth: number }>} */
   const SKY_PRESETS = {
@@ -502,11 +544,37 @@
   });
   document.body.appendChild(cursor);
 
+  function setPanelTab(panel) {
+    const tabBtn = document.querySelector(`.panel-tab[data-panel="${panel}"]`);
+    if (!tabBtn || tabBtn.disabled) return;
+
+    activePanelTab = panel;
+    document.querySelectorAll(".panel-tab").forEach((tab) => {
+      const isActive = tab.dataset.panel === panel;
+      tab.classList.toggle("active", isActive);
+      tab.setAttribute("aria-selected", isActive ? "true" : "false");
+    });
+    document.querySelectorAll(".panel-pane").forEach((pane) => {
+      const isActive = pane.dataset.panelPane === panel;
+      pane.classList.toggle("active", isActive);
+      pane.hidden = !isActive;
+    });
+  }
+
+  function updatePanelTabAvailability(enabled) {
+    document.querySelectorAll('.panel-tab[data-panel="edit"], .panel-tab[data-panel="caption"]').forEach((tab) => {
+      tab.disabled = !enabled;
+    });
+    if (!enabled && (activePanelTab === "edit" || activePanelTab === "caption")) {
+      setPanelTab("photos");
+    }
+  }
+
   function enableChrome(enabled) {
     resetBtn.disabled = !enabled;
     downloadBtn.disabled = !enabled;
     saveBtn.disabled = !enabled;
-    toolsSection.hidden = !enabled;
+    updatePanelTabAvailability(enabled);
     dropzone.hidden = enabled;
     canvasWrap.hidden = !enabled;
     zoomBar.hidden = !enabled;
@@ -597,6 +665,8 @@
     photo.skyEdgeFade = skyEdgeFade.value;
     photo.skyForeground = skyForeground.value;
     photo.skyKeepClouds = skyKeepClouds.checked;
+    photo.watermarkEnabled = isWatermarkEnabled();
+    photo.watermarkPosition = getWatermarkPositionFromUi();
   }
 
   function splitFileName(name) {
@@ -694,6 +764,7 @@
     const photo = getActivePhoto();
     if (!photo) {
       captionBox.hidden = true;
+      if (captionEmpty) captionEmpty.hidden = false;
       captionCategory.value = "";
       captionInput.value = "";
       fillCaptionTemplates("");
@@ -701,6 +772,7 @@
       return;
     }
     captionBox.hidden = false;
+    if (captionEmpty) captionEmpty.hidden = true;
     captionCategory.value = photo.captionCategory || "";
     captionInput.value = clampCaptionBody(stripCaptionPrefix(photo.caption || ""));
     fillCaptionTemplates(photo.captionCategory || "");
@@ -777,11 +849,15 @@
   const GEMINI_KEY_STORAGE = "lumen-gemini-api-key";
   const PROPERTY_ADDRESS_STORAGE = "lumen-property-address";
   const WATERMARK_STORAGE = "lumen-watermark-enabled";
+  const WATERMARK_POS_STORAGE = "lumen-watermark-position";
   const WATERMARK_SRC = "assets/kyouei-watermark.png";
+  const WATERMARK_POSITIONS = ["top-left", "top-right", "bottom-left", "bottom-right"];
+  const DEFAULT_WATERMARK_POSITION = "top-left";
 
   /** @type {HTMLImageElement | null} */
   let watermarkImage = null;
   let watermarkLoadPromise = null;
+  let activeWatermarkPosition = DEFAULT_WATERMARK_POSITION;
   const GEMINI_MODELS = [
     "gemini-2.5-flash",
     "gemini-2.0-flash",
@@ -914,35 +990,106 @@
     return watermarkLoadPromise;
   }
 
-  function drawWatermarkOnCanvas(targetCanvas) {
-    if (!isWatermarkEnabled() || !watermarkImage) return;
-    const ctx2 = targetCanvas.getContext("2d");
-    const w = targetCanvas.width;
-    const h = targetCanvas.height;
-    const shortEdge = Math.min(w, h);
+  function getWatermarkMetrics(canvasW, canvasH) {
+    const shortEdge = Math.min(canvasW, canvasH);
     const logoW = clamp(shortEdge * 0.13, 64, 200);
     const aspect = watermarkImage.naturalWidth / watermarkImage.naturalHeight;
     const logoH = logoW / aspect;
     const margin = clamp(shortEdge * 0.022, 10, 28);
+    return { logoW, logoH, margin };
+  }
+
+  function getWatermarkCoords(canvasW, canvasH, position) {
+    const { logoW, logoH, margin } = getWatermarkMetrics(canvasW, canvasH);
+    switch (position) {
+      case "top-right":
+        return { x: canvasW - logoW - margin, y: margin, logoW, logoH };
+      case "bottom-left":
+        return { x: margin, y: canvasH - logoH - margin, logoW, logoH };
+      case "bottom-right":
+        return {
+          x: canvasW - logoW - margin,
+          y: canvasH - logoH - margin,
+          logoW,
+          logoH,
+        };
+      case "top-left":
+      default:
+        return { x: margin, y: margin, logoW, logoH };
+    }
+  }
+
+  function getWatermarkPositionFromUi() {
+    return activeWatermarkPosition;
+  }
+
+  function setWatermarkPosition(position) {
+    activeWatermarkPosition = WATERMARK_POSITIONS.includes(position)
+      ? position
+      : DEFAULT_WATERMARK_POSITION;
+    localStorage.setItem(WATERMARK_POS_STORAGE, activeWatermarkPosition);
+    updateWatermarkPosUi();
+    persistWatermarkToActivePhoto();
+    if (baseImageData) renderEffects();
+  }
+
+  function updateWatermarkPosUi() {
+    if (!watermarkPosPicker) return;
+    const current = getWatermarkPositionFromUi();
+    const disabled = !isWatermarkEnabled();
+    watermarkPosPicker.querySelectorAll(".watermark-pos-btn").forEach((btn) => {
+      const active = btn.dataset.pos === current;
+      btn.classList.toggle("is-active", active);
+      btn.setAttribute("aria-pressed", active ? "true" : "false");
+      btn.disabled = disabled;
+    });
+  }
+
+  function getWatermarkPositionForPhoto(photo) {
+    if (!photo) return getWatermarkPositionFromUi();
+    if (photo.id === activePhotoId) return getWatermarkPositionFromUi();
+    return photo.watermarkPosition || DEFAULT_WATERMARK_POSITION;
+  }
+
+  function drawWatermarkOnCanvas(targetCanvas, position = DEFAULT_WATERMARK_POSITION) {
+    if (!isWatermarkEnabled() || !watermarkImage) return;
+    const ctx2 = targetCanvas.getContext("2d");
+    const w = targetCanvas.width;
+    const h = targetCanvas.height;
+    const { x, y, logoW, logoH } = getWatermarkCoords(w, h, position);
     ctx2.save();
     ctx2.globalAlpha = 0.58;
-    ctx2.drawImage(watermarkImage, margin, margin, logoW, logoH);
+    ctx2.drawImage(watermarkImage, x, y, logoW, logoH);
     ctx2.restore();
   }
 
-  function applyWatermarkToCanvas(canvas) {
-    drawWatermarkOnCanvas(canvas);
+  function applyWatermarkToCanvas(canvas, position = getWatermarkPositionFromUi()) {
+    drawWatermarkOnCanvas(canvas, position);
     return canvas;
+  }
+
+  function persistWatermarkToActivePhoto() {
+    const photo = getActivePhoto();
+    if (!photo) return;
+    photo.watermarkEnabled = isWatermarkEnabled();
+    photo.watermarkPosition = getWatermarkPositionFromUi();
   }
 
   function saveWatermarkPreference() {
     localStorage.setItem(WATERMARK_STORAGE, isWatermarkEnabled() ? "1" : "0");
+    persistWatermarkToActivePhoto();
   }
 
   function restoreWatermarkPreference() {
-    if (!watermarkEnabled) return;
-    const saved = localStorage.getItem(WATERMARK_STORAGE);
-    watermarkEnabled.checked = saved !== "0";
+    if (watermarkEnabled) {
+      const saved = localStorage.getItem(WATERMARK_STORAGE);
+      watermarkEnabled.checked = saved !== "0";
+    }
+    const savedPos = localStorage.getItem(WATERMARK_POS_STORAGE);
+    activeWatermarkPosition = WATERMARK_POSITIONS.includes(savedPos)
+      ? savedPos
+      : DEFAULT_WATERMARK_POSITION;
+    updateWatermarkPosUi();
   }
 
   function imageToJpegBase64(sourceCanvas, maxEdge = 1536) {
@@ -1348,7 +1495,7 @@ ${addressBlock}
     const nextName = `${base}${ext || ".jpg"}`;
     if (nextName === photo.name) {
       syncNameField();
-      return false;
+      return true;
     }
     photo.name = nextName;
     if (photo.id === activePhotoId) {
@@ -1488,6 +1635,7 @@ ${addressBlock}
     skyForeground.value = "0";
     skyKeepClouds.checked = true;
     setActiveSkyPresetId(DEFAULT_SKY_PRESET);
+    restoreWatermarkPreference();
     updateLightLabels();
     updateSkyLabels();
     updateSkyPresetActive();
@@ -1499,10 +1647,12 @@ ${addressBlock}
     nameField.hidden = true;
     photoNameInput.value = "";
     captionBox.hidden = true;
+    if (captionEmpty) captionEmpty.hidden = false;
     captionCategory.value = "";
     captionInput.value = "";
     fillCaptionTemplates("");
     renderGallery();
+    updateMosaicUndoUi();
   }
 
   function restorePhoto(photo) {
@@ -1519,6 +1669,13 @@ ${addressBlock}
     skyEdgeFade.value = photo.skyEdgeFade ?? "50";
     skyForeground.value = photo.skyForeground || "0";
     skyKeepClouds.checked = photo.skyKeepClouds !== false;
+    if (watermarkEnabled) {
+      watermarkEnabled.checked = photo.watermarkEnabled !== false;
+    }
+    activeWatermarkPosition = WATERMARK_POSITIONS.includes(photo.watermarkPosition)
+      ? photo.watermarkPosition
+      : DEFAULT_WATERMARK_POSITION;
+    updateWatermarkPosUi();
     previewAngle = 0;
     rotateAngle.value = "0";
     updateLightLabels();
@@ -1548,6 +1705,7 @@ ${addressBlock}
     fileHint.textContent = photo.name;
     setTool("resize");
     renderGallery();
+    updateMosaicUndoUi();
   }
 
   function selectPhoto(id) {
@@ -1677,6 +1835,7 @@ ${addressBlock}
             sourceImage: img,
             thumbUrl: makeThumbUrl(img),
             baseImageData: null,
+            preMosaicImageData: null,
             brightness: "0",
             contrast: "0",
             skyPreset: DEFAULT_SKY_PRESET,
@@ -1689,6 +1848,8 @@ ${addressBlock}
             skyEdgeFade: "50",
             skyForeground: "0",
             skyKeepClouds: true,
+            watermarkEnabled: isWatermarkEnabled(),
+            watermarkPosition: getWatermarkPositionFromUi(),
             captionCategory: "",
             caption: "",
           };
@@ -1853,6 +2014,7 @@ ${addressBlock}
       photo.baseImageData = cloneImageData(baseImageData);
       photo.brightness = brightness.value;
       photo.contrast = contrast.value;
+      clearPreMosaicSnapshot(photo);
     }
     requestAnimationFrame(() => fitView());
   }
@@ -2279,6 +2441,8 @@ ${addressBlock}
     applyWatermarkToCanvas(temp);
     return temp;
   }
+
+  function drawSkyPresetThumb(presetId, canvas) {
     const preset = getSkyPreset(presetId);
     const ctx2 = canvas.getContext("2d");
     const w = canvas.width;
@@ -2338,6 +2502,7 @@ ${addressBlock}
         setActiveSkyPresetId(id);
         if (Number(skyStrength.value) < 40) skyStrength.value = "90";
         onSkyControlChange();
+        setPanelTab("edit");
         setTool("sky");
       });
       skyPresetGrid.append(btn);
@@ -2398,6 +2563,12 @@ ${addressBlock}
 
   function renderEffects() {
     if (!baseImageData) return;
+    if (isWatermarkEnabled() && !watermarkImage) {
+      loadWatermarkImage()
+        .then(() => renderEffects())
+        .catch(() => {});
+      return;
+    }
     const lit = buildLitCanvas();
     if (!lit) return;
 
@@ -2586,6 +2757,7 @@ ${addressBlock}
       photo.baseImageData = cloneImageData(baseImageData);
       photo.brightness = brightness.value;
       photo.contrast = contrast.value;
+      clearPreMosaicSnapshot(photo);
       renderGallery();
     }
     requestAnimationFrame(() => fitView());
@@ -2621,6 +2793,90 @@ ${addressBlock}
       x: (clientX - rect.left) * scaleX,
       y: (clientY - rect.top) * scaleY,
     };
+  }
+
+  function savePreMosaicSnapshot(photo) {
+    if (!photo) return;
+    const data = photo.id === activePhotoId && baseImageData ? baseImageData : photo.baseImageData;
+    if (!data) return;
+    photo.preMosaicImageData = cloneImageData(data);
+    updateMosaicUndoUi();
+  }
+
+  function clearPreMosaicSnapshot(photo) {
+    if (!photo) return;
+    photo.preMosaicImageData = null;
+    updateMosaicUndoUi();
+  }
+
+  function ensurePreMosaicBeforeEdit(photo) {
+    if (!photo || photo.preMosaicImageData) return;
+    savePreMosaicSnapshot(photo);
+  }
+
+  function canUndoMosaic(photo) {
+    return Boolean(photo?.preMosaicImageData);
+  }
+
+  function updateMosaicUndoUi() {
+    if (undoMosaicBtn) {
+      undoMosaicBtn.disabled = !canUndoMosaic(getActivePhoto());
+    }
+    updateHideBrushUi();
+  }
+
+  function setHideBrushMode(mode) {
+    hideBrushMode = mode === "restore" ? "restore" : "mosaic";
+    updateHideBrushUi();
+  }
+
+  function updateHideBrushUi() {
+    const canRestore = canUndoMosaic(getActivePhoto());
+    if (hideBrushMode === "restore" && !canRestore) {
+      hideBrushMode = "mosaic";
+    }
+    if (hideBrushModePicker) {
+      hideBrushModePicker.querySelectorAll(".hide-brush-mode-btn").forEach((btn) => {
+        const active = btn.dataset.mode === hideBrushMode;
+        const disabled = btn.dataset.mode === "restore" && !canRestore;
+        btn.classList.toggle("is-active", active);
+        btn.disabled = disabled;
+        btn.setAttribute("aria-pressed", active ? "true" : "false");
+      });
+    }
+    if (mosaicSize) {
+      mosaicSize.disabled = hideBrushMode === "restore";
+      mosaicSize.closest(".field")?.classList.toggle("is-disabled", hideBrushMode === "restore");
+    }
+    canvas.classList.toggle("tool-hide-restore", activeTool === "hide" && hideBrushMode === "restore");
+    cursor.classList.toggle("is-restore", hideBrushMode === "restore");
+  }
+
+  function getPreMosaicSource(photo) {
+    if (!photo?.preMosaicImageData) return null;
+    return photo.preMosaicImageData;
+  }
+
+  function restorePreMosaicForPhoto(photo) {
+    if (!photo?.preMosaicImageData) return false;
+    const data = cloneImageData(photo.preMosaicImageData);
+    photo.baseImageData = data;
+    clearPreMosaicSnapshot(photo);
+    if (photo.id === activePhotoId) {
+      baseImageData = data;
+      canvas.width = data.width;
+      canvas.height = data.height;
+      ctx.putImageData(data, 0, 0);
+      skyMaskCache = { key: "", mask: null };
+      aspectRatio = data.width / data.height;
+      resizeWidth.value = String(data.width);
+      resizeHeight.value = String(data.height);
+      initCropRect();
+      renderEffects();
+      requestAnimationFrame(() => fitView());
+    }
+    renderGallery();
+    return true;
   }
 
   function mosaicAt(x, y) {
@@ -2678,6 +2934,37 @@ ${addressBlock}
         }
       }
     }
+  }
+
+  function restoreAt(x, y) {
+    const source = getPreMosaicSource(getActivePhoto());
+    if (!baseImageData || !source) return false;
+    if (source.width !== baseImageData.width || source.height !== baseImageData.height) return false;
+
+    const radius = Number(brushSize.value);
+    const w = baseImageData.width;
+    const h = baseImageData.height;
+    const dst = baseImageData.data;
+    const src = source.data;
+    const r2 = radius * radius;
+    const x0 = Math.max(0, Math.floor(x - radius));
+    const y0 = Math.max(0, Math.floor(y - radius));
+    const x1 = Math.min(w, Math.ceil(x + radius));
+    const y1 = Math.min(h, Math.ceil(y + radius));
+
+    for (let py = y0; py < y1; py += 1) {
+      for (let px = x0; px < x1; px += 1) {
+        const dx = px - x;
+        const dy = py - y;
+        if (dx * dx + dy * dy > r2) continue;
+        const i = (py * w + px) * 4;
+        dst[i] = src[i];
+        dst[i + 1] = src[i + 1];
+        dst[i + 2] = src[i + 2];
+        dst[i + 3] = src[i + 3];
+      }
+    }
+    return true;
   }
 
   function mosaicRect(rx, ry, rw, rh, blockOverride) {
@@ -2787,8 +3074,8 @@ ${addressBlock}
         throw new Error("検知モデルの読込に失敗しました");
       }
       const [faceModel, objectModel] = await Promise.all([
-        window.blazeface.load({ maxFaces: 20 }),
-        window.cocoSsd.load({ base: "lite_mobilenet_v2" }),
+        window.blazeface.load({ maxFaces: 30 }),
+        window.cocoSsd.load({ base: "mobilenet_v2" }),
       ]);
       return { faceModel, objectModel };
     })().catch((err) => {
@@ -2798,11 +3085,14 @@ ${addressBlock}
     return tfModelsPromise;
   }
 
+  const DETECT_MAX_EDGE = 1280;
+  const VEHICLE_CLASSES = new Set(["car", "truck", "bus", "motorcycle"]);
+
   function photoToDetectCanvas(photo) {
     const src = canvasFromPhoto(photo);
-    const maxEdge = 960;
+    const maxEdge = DETECT_MAX_EDGE;
     const scale = Math.min(1, maxEdge / Math.max(src.width, src.height));
-    if (scale >= 0.999) return { canvas: src, scale: 1 };
+    if (scale >= 0.999) return { canvas: src, scale: 1, width: src.width, height: src.height };
     const c = document.createElement("canvas");
     c.width = Math.max(1, Math.round(src.width * scale));
     c.height = Math.max(1, Math.round(src.height * scale));
@@ -2810,7 +3100,180 @@ ${addressBlock}
     ctx2.imageSmoothingEnabled = true;
     ctx2.imageSmoothingQuality = "high";
     ctx2.drawImage(src, 0, 0, c.width, c.height);
-    return { canvas: c, scale };
+    return { canvas: c, scale, width: c.width, height: c.height };
+  }
+
+  function boxIoU(a, b) {
+    const x1 = Math.max(a.x, b.x);
+    const y1 = Math.max(a.y, b.y);
+    const x2 = Math.min(a.x + a.w, b.x + b.w);
+    const y2 = Math.min(a.y + a.h, b.y + b.h);
+    const inter = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
+    const union = a.w * a.h + b.w * b.h - inter;
+    return union > 0 ? inter / union : 0;
+  }
+
+  function boxCategory(type) {
+    if (type.startsWith("plate")) return "plate";
+    return "person";
+  }
+
+  function plateTypePriority(type) {
+    if (type === "plate-color") return 4;
+    if (type === "plate") return 3;
+    if (type === "plate-est") return 1;
+    return 2;
+  }
+
+  function isPlateColorPixel(r, g, b) {
+    if (r > 135 && g > 115 && b < 135 && r > b + 28 && g > b + 8) return true;
+    if (r > 168 && g > 168 && b > 168 && Math.abs(r - g) < 35 && Math.abs(g - b) < 35) return true;
+    if (g > 95 && g > r + 12 && g > b + 12 && r < 125 && b < 125) return true;
+    return false;
+  }
+
+  function findPlateColorRegion(imageData, sx, sy, sw, sh) {
+    const data = imageData.data;
+    const w = imageData.width;
+    const h = imageData.height;
+    const x0 = Math.max(0, Math.floor(sx));
+    const y0 = Math.max(0, Math.floor(sy));
+    const x1 = Math.min(w, Math.ceil(sx + sw));
+    const y1 = Math.min(h, Math.ceil(sy + sh));
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    let count = 0;
+    const step = Math.max(1, Math.round(Math.min(sw, sh) / 80));
+
+    for (let py = y0; py < y1; py += step) {
+      for (let px = x0; px < x1; px += step) {
+        const i = (py * w + px) * 4;
+        if (!isPlateColorPixel(data[i], data[i + 1], data[i + 2])) continue;
+        count += 1;
+        minX = Math.min(minX, px);
+        minY = Math.min(minY, py);
+        maxX = Math.max(maxX, px);
+        maxY = Math.max(maxY, py);
+      }
+    }
+
+    if (count < 18) return null;
+    const pad = Math.max(3, Math.round((maxX - minX) * 0.08));
+    const x = Math.max(0, minX - pad);
+    const y = Math.max(0, minY - pad);
+    const x2 = Math.min(w, maxX + pad);
+    const y2 = Math.min(h, maxY + pad);
+    return { x, y, w: Math.max(1, x2 - x), h: Math.max(1, y2 - y) };
+  }
+
+  function isValidPlateBox(box, imgW, imgH) {
+    if (!box || box.w < 10 || box.h < 5) return false;
+    const aspect = box.w / box.h;
+    if (aspect < 1.5 || aspect > 9) return false;
+    if (box.w > imgW * 0.32 || box.h > imgH * 0.14) return false;
+    const area = box.w * box.h;
+    if (area > imgW * imgH * 0.04) return false;
+    return true;
+  }
+
+  function isValidFaceBox(box, imgW, imgH) {
+    if (!box || box.w < 10 || box.h < 10) return false;
+    const aspect = box.w / box.h;
+    if (aspect > 2.1 || aspect < 0.42) return false;
+    if (box.w > imgW * 0.42 || box.h > imgH * 0.42) return false;
+    return true;
+  }
+
+  function refinePlateBoxWithColor(imageData, box, imgW, imgH) {
+    const padX = box.w * 0.2;
+    const padY = box.h * 0.35;
+    const sx = Math.max(0, box.x - padX);
+    const sy = Math.max(0, box.y - padY);
+    const sw = Math.min(imgW, box.x + box.w + padX) - sx;
+    const sh = Math.min(imgH, box.y + box.h + padY) - sy;
+    const refined = findPlateColorRegion(imageData, sx, sy, sw, sh);
+    if (refined && isValidPlateBox(refined, imgW, imgH)) {
+      return { ...box, ...refined, type: box.type === "plate-est" ? "plate-color" : box.type };
+    }
+    return box;
+  }
+
+  function refinePlateBoxesWithColor(boxes, photo) {
+    const source = canvasFromPhoto(photo);
+    const imgW = source.width;
+    const imgH = source.height;
+    const imageData = source.getContext("2d").getImageData(0, 0, imgW, imgH);
+    return boxes.map((box) =>
+      box.type.startsWith("plate") ? refinePlateBoxWithColor(imageData, box, imgW, imgH) : box,
+    );
+  }
+
+  function filterDetectionBoxes(boxes, imgW, imgH) {
+    return boxes.filter((box) => {
+      if (box.type.startsWith("plate")) return isValidPlateBox(box, imgW, imgH);
+      return isValidFaceBox(box, imgW, imgH);
+    });
+  }
+
+  function mergeDetectionBoxes(boxes, iouThreshold = 0.32) {
+    const sorted = [...boxes].sort((a, b) => {
+      const catA = boxCategory(a.type);
+      const catB = boxCategory(b.type);
+      if (catA === "plate" && catB === "plate") {
+        const priDiff = plateTypePriority(b.type) - plateTypePriority(a.type);
+        if (priDiff !== 0) return priDiff;
+      }
+      return b.w * b.h - a.w * a.h;
+    });
+    const kept = [];
+    sorted.forEach((box) => {
+      const duplicate = kept.some((other) => {
+        if (boxCategory(other.type) !== boxCategory(box.type)) return false;
+        return boxIoU(other, box) > iouThreshold;
+      });
+      if (!duplicate) kept.push(box);
+    });
+    return kept;
+  }
+
+  function normalizedBoxToPixels(box, imgW, imgH) {
+    const xmin = Number(box.xmin ?? box.x ?? 0);
+    const ymin = Number(box.ymin ?? box.y ?? 0);
+    const xmax = Number(box.xmax ?? (box.x != null && box.w != null ? box.x + box.w : 0));
+    const ymax = Number(box.ymax ?? (box.y != null && box.h != null ? box.y + box.h : 0));
+    const looksNormalized =
+      xmax > 0 &&
+      ymax > 0 &&
+      xmax <= 1000 &&
+      ymax <= 1000 &&
+      xmin >= 0 &&
+      ymin >= 0 &&
+      xmin < xmax &&
+      ymin < ymax;
+    if (looksNormalized) {
+      return {
+        x: (xmin / 1000) * imgW,
+        y: (ymin / 1000) * imgH,
+        w: ((xmax - xmin) / 1000) * imgW,
+        h: ((ymax - ymin) / 1000) * imgH,
+      };
+    }
+    const w = Number(box.w) || 0;
+    const h = Number(box.h) || 0;
+    return { x: xmin, y: ymin, w, h };
+  }
+
+  function scalePixelBoxToImage(box, sentW, sentH, imgW, imgH) {
+    const scaleX = imgW / sentW;
+    const scaleY = imgH / sentH;
+    return {
+      x: box.x * scaleX,
+      y: box.y * scaleY,
+      w: box.w * scaleX,
+      h: box.h * scaleY,
+    };
   }
 
   async function detectPeopleBoxes(detectCanvas, scale, faceModel, objectModel) {
@@ -2818,16 +3281,19 @@ ${addressBlock}
     const inv = 1 / scale;
 
     try {
-      const faces = await faceModel.estimateFaces(detectCanvas, false);
+      const faces = await faceModel.estimateFaces(detectCanvas, false, true);
       faces.forEach((face) => {
         const [x1, y1] = face.topLeft;
         const [x2, y2] = face.bottomRight;
+        const w = (x2 - x1) * inv;
+        const h = (y2 - y1) * inv;
+        if (w < 6 || h < 6) return;
         boxes.push({
           type: "face",
           x: x1 * inv,
           y: y1 * inv,
-          w: (x2 - x1) * inv,
-          h: (y2 - y1) * inv,
+          w,
+          h,
         });
       });
     } catch (err) {
@@ -2835,17 +3301,21 @@ ${addressBlock}
     }
 
     try {
-      const preds = await objectModel.detect(detectCanvas, 20, 0.45);
+      const preds = await objectModel.detect(detectCanvas, 30, 0.28);
       preds.forEach((p) => {
         if (p.class !== "person") return;
         const [x, y, w, h] = p.bbox;
-        // 顔検知漏れ向けに上半身（頭部付近）もモザイク
+        const fullW = w * inv;
+        const fullH = h * inv;
+        if (fullW < 18 || fullH < 24) return;
+        const headW = fullW * 0.72;
+        const headH = Math.min(fullH * 0.44, headW * 1.05);
         boxes.push({
           type: "person-head",
-          x: x * inv,
+          x: x * inv + (fullW - headW) / 2,
           y: y * inv,
-          w: w * inv,
-          h: h * inv * 0.38,
+          w: headW,
+          h: headH,
         });
       });
     } catch (err) {
@@ -2855,41 +3325,84 @@ ${addressBlock}
     return boxes;
   }
 
-  async function detectPlateBoxesLocal(detectCanvas, scale, objectModel) {
+  async function detectPlateBoxesLocal(detectCanvas, scale, objectModel, photo) {
     const boxes = [];
     const inv = 1 / scale;
+    const source = canvasFromPhoto(photo);
+    const imgW = source.width;
+    const imgH = source.height;
+    const imageData = source.getContext("2d").getImageData(0, 0, imgW, imgH);
+
     try {
-      const preds = await objectModel.detect(detectCanvas, 20, 0.4);
+      const preds = await objectModel.detect(detectCanvas, 30, 0.32);
       preds.forEach((p) => {
-        if (p.class !== "car" && p.class !== "truck" && p.class !== "bus") return;
+        if (!VEHICLE_CLASSES.has(p.class)) return;
         const [x, y, w, h] = p.bbox;
-        // 車体下部をナンバー位置として推定
-        boxes.push({
-          type: "plate-est",
-          x: (x + w * 0.15) * inv,
-          y: (y + h * 0.62) * inv,
-          w: w * 0.7 * inv,
-          h: h * 0.22 * inv,
-        });
+        const fullW = w * inv;
+        const fullH = h * inv;
+        if (fullW < 28 || fullH < 20) return;
+
+        const vx = x * inv;
+        const vy = y * inv;
+        const colorBox = findPlateColorRegion(imageData, vx, vy + fullH * 0.52, fullW, fullH * 0.46);
+        if (colorBox && isValidPlateBox(colorBox, imgW, imgH)) {
+          boxes.push({ type: "plate-color", ...colorBox });
+          return;
+        }
+
+        const fallback = {
+          x: vx + fullW * 0.26,
+          y: vy + fullH * 0.83,
+          w: fullW * 0.48,
+          h: fullH * 0.09,
+        };
+        if (isValidPlateBox(fallback, imgW, imgH)) {
+          boxes.push({ type: "plate-est", ...fallback });
+        }
       });
     } catch (err) {
       console.warn(err);
     }
+
+    if (!boxes.length) {
+      const colorBox = findPlateColorRegion(imageData, imgW * 0.08, imgH * 0.55, imgW * 0.84, imgH * 0.4);
+      if (colorBox && isValidPlateBox(colorBox, imgW, imgH)) {
+        boxes.push({ type: "plate-color", ...colorBox });
+      }
+    }
+
     return boxes;
   }
 
-  async function detectPlateBoxesGemini(photo) {
+  async function detectVisionBoxesGemini(photo, target) {
     const apiKey = getGeminiApiKey();
     if (!apiKey) return [];
 
     const source = canvasFromPhoto(photo);
-    const base64 = imageToJpegBase64(source, 1024);
-    const prompt = `この不動産写真から「車のナンバープレート」の位置だけを検出してください。
-人物の顔は対象外です。
+    const imgW = source.width;
+    const imgH = source.height;
+    const sentScale = Math.min(1, DETECT_MAX_EDGE / Math.max(imgW, imgH));
+    const sentW = Math.max(1, Math.round(imgW * sentScale));
+    const sentH = Math.max(1, Math.round(imgH * sentScale));
+    const base64 = imageToJpegBase64(source, DETECT_MAX_EDGE);
+
+    const prompt =
+      target === "plates"
+        ? `この不動産写真の「車のナンバープレート」だけを検出してください。
+対象: 日本の黄色・白・緑の長方形プレート（文字が読めるもの）。
+除外: ヘッドライト、グリル、ガラス、ボンネット、看板、表札、人物。
 必ず次のJSONのみ返すこと:
-{"plates":[{"x":0,"y":0,"w":0,"h":0}]}
-座標は画像左上原点、ピクセル単位。写っていない場合は {"plates":[]} 。
-推測で広く取りすぎない。プレート本体＋余白少しだけ。`;
+{"items":[{"xmin":0,"ymin":0,"xmax":0,"ymax":0}]}
+座標は画像左上原点で0〜1000の正規化値（xmin,ymin=左上、xmax,ymax=右下）。
+プレート本体＋わずかな余白のみ。車体の広い範囲は含めない。
+写っていない・不明な場合は {"items":[]}。`
+        : `この不動産写真の「人物の顔・頭部」だけを検出してください。
+除外: 車のナンバー、看板、ポスター、反射、車体。
+必ず次のJSONのみ返すこと:
+{"items":[{"xmin":0,"ymin":0,"xmax":0,"ymax":0}]}
+座標は画像左上原点で0〜1000の正規化値。
+顔はおおよそ正方形に近い範囲。横に細長い範囲は返さない。
+写っていない場合は {"items":[]}。`;
 
     const body = {
       contents: [
@@ -2901,8 +3414,8 @@ ${addressBlock}
         },
       ],
       generationConfig: {
-        temperature: 0.1,
-        maxOutputTokens: 512,
+        temperature: 0.05,
+        maxOutputTokens: 768,
         responseMimeType: "application/json",
       },
     };
@@ -2927,16 +3440,46 @@ ${addressBlock}
         const match = text.match(/\{[\s\S]*\}/);
         if (!match) return [];
         const parsed = JSON.parse(match[0]);
-        const plates = Array.isArray(parsed.plates) ? parsed.plates : [];
-        return plates
-          .map((p) => ({
-            type: "plate",
-            x: Number(p.x) || 0,
-            y: Number(p.y) || 0,
-            w: Number(p.w) || 0,
-            h: Number(p.h) || 0,
-          }))
-          .filter((p) => p.w > 4 && p.h > 4);
+        const items = Array.isArray(parsed.items)
+          ? parsed.items
+          : Array.isArray(parsed.plates)
+            ? parsed.plates
+            : Array.isArray(parsed.faces)
+              ? parsed.faces
+              : [];
+        return items
+          .map((item) => {
+            let px;
+            if (
+              item.xmin != null &&
+              item.xmax != null &&
+              item.ymin != null &&
+              item.ymax != null
+            ) {
+              px = normalizedBoxToPixels(item, imgW, imgH);
+            } else {
+              px = scalePixelBoxToImage(
+                {
+                  x: Number(item.x) || 0,
+                  y: Number(item.y) || 0,
+                  w: Number(item.w) || 0,
+                  h: Number(item.h) || 0,
+                },
+                sentW,
+                sentH,
+                imgW,
+                imgH,
+              );
+            }
+            return {
+              type: target === "plates" ? "plate" : "face-gemini",
+              x: px.x,
+              y: px.y,
+              w: px.w,
+              h: px.h,
+            };
+          })
+          .filter((p) => p.w > 6 && p.h > 6);
       } catch (err) {
         lastError = err;
         if (/利用上限|APIキー|制限/i.test(String(err?.message || ""))) throw err;
@@ -2958,6 +3501,8 @@ ${addressBlock}
       snapshotCurrent();
     }
 
+    ensurePreMosaicBeforeEdit(photo);
+
     const targetData = wasActive ? baseImageData : photo.baseImageData;
     if (!targetData) return 0;
     const imgW = targetData.width;
@@ -2967,10 +3512,17 @@ ${addressBlock}
 
     let count = 0;
     boxes.forEach((box) => {
-      const pad = box.type === "face" ? 0.25 : box.type.startsWith("plate") ? 0.12 : 0.08;
+      const pad =
+        box.type === "face" || box.type === "face-gemini"
+          ? 0.32
+          : box.type.startsWith("plate")
+            ? 0.18
+            : 0.16;
       const b = expandBox(box, pad, imgW, imgH);
       const block =
-        box.type === "face" || box.type.startsWith("plate")
+        box.type === "face" ||
+        box.type === "face-gemini" ||
+        box.type.startsWith("plate")
           ? Math.max(8, Math.round(Math.min(b.w, b.h) / 6))
           : Math.max(10, Number(mosaicSize.value));
       mosaicRect(b.x, b.y, b.w, b.h, block);
@@ -2988,35 +3540,50 @@ ${addressBlock}
     } else {
       baseImageData = savedBase;
     }
+    updateMosaicUndoUi();
     return count;
   }
 
   async function autoMosaicPhoto(photo, { people, plates }) {
     const boxes = [];
     const { canvas: detectCanvas, scale } = photoToDetectCanvas(photo);
+    const source = canvasFromPhoto(photo);
+    const imgW = source.width;
+    const imgH = source.height;
+    const hasGemini = Boolean(getGeminiApiKey());
 
     if (people || plates) {
       const { faceModel, objectModel } = await ensureTfModels();
       if (people) {
         boxes.push(...(await detectPeopleBoxes(detectCanvas, scale, faceModel, objectModel)));
+        if (hasGemini) {
+          try {
+            boxes.push(...(await detectVisionBoxesGemini(photo, "people")));
+          } catch (err) {
+            console.warn(err);
+          }
+        }
       }
       if (plates) {
-        let plateBoxes = [];
-        try {
-          plateBoxes = await detectPlateBoxesGemini(photo);
-        } catch (err) {
-          console.warn(err);
-          // 上限などでもローカル推定へフォールバック
+        boxes.push(...(await detectPlateBoxesLocal(detectCanvas, scale, objectModel, photo)));
+        if (hasGemini) {
+          try {
+            boxes.push(...(await detectVisionBoxesGemini(photo, "plates")));
+          } catch (err) {
+            console.warn(err);
+          }
         }
-        if (!plateBoxes.length) {
-          plateBoxes = await detectPlateBoxesLocal(detectCanvas, scale, objectModel);
-        }
-        boxes.push(...plateBoxes);
       }
     }
 
-    const applied = applyBoxesToPhoto(photo, boxes);
-    return { applied, boxes };
+    const filtered = filterDetectionBoxes(
+      refinePlateBoxesWithColor(boxes, photo),
+      imgW,
+      imgH,
+    );
+    const merged = mergeDetectionBoxes(filtered);
+    const applied = applyBoxesToPhoto(photo, merged);
+    return { applied, boxes: merged };
   }
 
   function setAutoMosaicStatus(message, isError = false) {
@@ -3044,7 +3611,9 @@ ${addressBlock}
     try {
       const { applied, boxes } = await autoMosaicPhoto(photo, { people, plates });
       renderGallery();
-      const faces = boxes.filter((b) => b.type === "face" || b.type === "person-head").length;
+      const faces = boxes.filter(
+        (b) => b.type === "face" || b.type === "face-gemini" || b.type === "person-head",
+      ).length;
       const plateN = boxes.filter((b) => b.type.startsWith("plate")).length;
       const msg =
         applied > 0
@@ -3114,13 +3683,14 @@ ${addressBlock}
     }
   }
 
-  function strokeMosaic(from, to) {
+  function strokeHideBrush(from, to) {
     const dist = Math.hypot(to.x - from.x, to.y - from.y);
     const step = Math.max(4, Number(brushSize.value) * 0.4);
     const steps = Math.max(1, Math.ceil(dist / step));
+    const paint = hideBrushMode === "restore" ? restoreAt : mosaicAt;
     for (let i = 0; i <= steps; i += 1) {
       const t = i / steps;
-      mosaicAt(from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t);
+      paint(from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t);
     }
     renderEffects();
   }
@@ -3185,6 +3755,7 @@ ${addressBlock}
     canvas.classList.toggle("tool-hide", tool === "hide");
     canvas.classList.toggle("tool-crop", tool === "crop");
     if (tool !== "hide") cursor.style.display = "none";
+    updateHideBrushUi();
 
     if (tool === "crop") {
       previewAngle = 0;
@@ -3203,6 +3774,10 @@ ${addressBlock}
 
   document.querySelectorAll(".tool-tab").forEach((tab) => {
     tab.addEventListener("click", () => setTool(tab.dataset.tool));
+  });
+
+  document.querySelectorAll(".panel-tab").forEach((tab) => {
+    tab.addEventListener("click", () => setPanelTab(tab.dataset.panel));
   });
 
   fileInput.addEventListener("change", () => {
@@ -3366,7 +3941,16 @@ ${addressBlock}
   if (watermarkEnabled) {
     watermarkEnabled.addEventListener("change", () => {
       saveWatermarkPreference();
+      updateWatermarkPosUi();
       if (baseImageData) renderEffects();
+    });
+  }
+  if (watermarkPosPicker) {
+    watermarkPosPicker.querySelectorAll(".watermark-pos-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        if (!btn.dataset.pos) return;
+        setWatermarkPosition(btn.dataset.pos);
+      });
     });
   }
 
@@ -3398,6 +3982,7 @@ ${addressBlock}
       const w = Number(resizeWidth.value);
       if (w) resizeHeight.value = String(Math.max(1, Math.round(w / aspectRatio)));
     }
+    clearExportPresetSelection();
     updateBatchResizeHint();
   });
 
@@ -3406,6 +3991,7 @@ ${addressBlock}
       const h = Number(resizeHeight.value);
       if (h) resizeWidth.value = String(Math.max(1, Math.round(h * aspectRatio)));
     }
+    clearExportPresetSelection();
     updateBatchResizeHint();
   });
 
@@ -3481,6 +4067,54 @@ ${addressBlock}
     return resizeCanvasHighQualitySync(source, destW, destH);
   }
 
+  function fitWithinBox(srcW, srcH, minW, minH, maxW, maxH, { allowUpscale = false } = {}) {
+    let scale = Math.min(maxW / srcW, maxH / srcH);
+    if (!allowUpscale && scale > 1) scale = 1;
+    let w = Math.round(srcW * scale);
+    let h = Math.round(srcH * scale);
+    if (w < minW || h < minH) {
+      const upScale = Math.max(minW / srcW, minH / srcH);
+      if (allowUpscale || upScale <= 1) {
+        scale = Math.max(scale, upScale);
+        w = Math.round(srcW * scale);
+        h = Math.round(srcH * scale);
+      }
+    }
+    if (w > maxW || h > maxH) {
+      scale = Math.min(maxW / srcW, maxH / srcH);
+      w = Math.round(srcW * scale);
+      h = Math.round(srcH * scale);
+    }
+    return { w: Math.max(1, w), h: Math.max(1, h) };
+  }
+
+  function calcIriPresetSize(srcW, srcH, preset) {
+    return fitWithinBox(srcW, srcH, preset.minW, preset.minH, preset.maxW, preset.maxH, {
+      allowUpscale: Boolean(preset.allowUpscale),
+    });
+  }
+
+  function resolveTargetSize(srcW, srcH) {
+    const preset = activeExportPreset && EXPORT_PRESETS[activeExportPreset];
+    if (preset?.kind === "iri-box") {
+      return calcIriPresetSize(srcW, srcH, preset);
+    }
+    return calcBatchTargetSize(
+      srcW,
+      srcH,
+      batchResizeMode.value,
+      Number(resizeWidth.value) || 1600,
+      Number(resizeHeight.value) || 1600,
+      Number(batchLongEdge.value) || 1600,
+    );
+  }
+
+  function getActiveExportByteLimit() {
+    const preset = activeExportPreset && EXPORT_PRESETS[activeExportPreset];
+    if (preset?.maxBytes) return preset.maxBytes;
+    return 250 * 1024;
+  }
+
   function calcBatchTargetSize(srcW, srcH, mode, targetW, targetH, longEdge) {
     const tw = Math.max(1, Math.round(targetW));
     const th = Math.max(1, Math.round(targetH));
@@ -3545,6 +4179,12 @@ ${addressBlock}
 
   function updateBatchResizeHint() {
     if (!batchResizeHint) return;
+    const preset = activeExportPreset && EXPORT_PRESETS[activeExportPreset];
+    if (preset?.kind === "iri-box") {
+      batchResizeHint.textContent = `${preset.label}: ${preset.minW}〜${preset.maxW}px・${Math.round(preset.maxBytes / 1024)}KB以内（保存時に上限ギリギリまで圧縮）`;
+      if (batchLongEdgeField) batchLongEdgeField.hidden = true;
+      return;
+    }
     const mode = batchResizeMode.value;
     const w = resizeWidth.value || "—";
     const h = resizeHeight.value || "—";
@@ -3557,7 +4197,51 @@ ${addressBlock}
       exact: `全写真を ${w}×${h} に強制変更します`,
     };
     batchResizeHint.textContent = hints[mode] || hints.fit;
-    batchLongEdgeField.hidden = mode !== "long";
+    if (batchLongEdgeField) batchLongEdgeField.hidden = mode !== "long";
+  }
+
+  function updateExportPresetUi() {
+    if (exportPresetPicker) {
+      exportPresetPicker.querySelectorAll(".export-preset-btn").forEach((btn) => {
+        const active = btn.dataset.preset === activeExportPreset;
+        btn.classList.toggle("is-active", active);
+        btn.setAttribute("aria-pressed", active ? "true" : "false");
+      });
+    }
+    if (exportPresetHint) {
+      const preset = EXPORT_PRESETS[activeExportPreset];
+      exportPresetHint.textContent = preset
+        ? `IRI公式ガイドライン準拠: ${preset.hint}（保存時は容量上限ギリギリまで画質を上げます）`
+        : "幅・高さを手動で指定しています。";
+    }
+    updateBatchResizeHint();
+  }
+
+  function clearExportPresetSelection() {
+    activeExportPreset = "";
+    localStorage.removeItem(EXPORT_PRESET_STORAGE);
+    updateExportPresetUi();
+  }
+
+  function applyExportPreset(presetId, { silent = false } = {}) {
+    const preset = EXPORT_PRESETS[presetId];
+    if (!preset) return;
+    activeExportPreset = presetId;
+    localStorage.setItem(EXPORT_PRESET_STORAGE, presetId);
+    if (preset.maxW) resizeWidth.value = String(preset.maxW);
+    if (preset.maxH) resizeHeight.value = String(preset.maxH);
+    if (batchResizeMode) batchResizeMode.value = "fit";
+    updateExportPresetUi();
+    if (!silent) showToast(`${preset.label} のサイズ設定を適用しました`);
+  }
+
+  function restoreExportPresetPreference() {
+    const saved = localStorage.getItem(EXPORT_PRESET_STORAGE);
+    if (saved && EXPORT_PRESETS[saved]) {
+      applyExportPreset(saved, { silent: true });
+      return;
+    }
+    applyExportPreset(DEFAULT_EXPORT_PRESET, { silent: true });
   }
 
   async function batchResizeAll({ andSave = false, forceDownload = false } = {}) {
@@ -3587,7 +4271,7 @@ ${addressBlock}
 
         try {
           const src = photoSourceCanvas(photo);
-          const { w, h } = calcBatchTargetSize(src.width, src.height, mode, targetW, targetH, longEdge);
+          const { w, h } = resolveTargetSize(src.width, src.height);
 
           if (w === src.width && h === src.height) {
             if (!photo.baseImageData) {
@@ -3635,8 +4319,7 @@ ${addressBlock}
 
   applyResize.addEventListener("click", async () => {
     if (!baseImageData) return;
-    const w = Math.max(1, Math.round(Number(resizeWidth.value) || baseImageData.width));
-    const h = Math.max(1, Math.round(Number(resizeHeight.value) || baseImageData.height));
+    const { w, h } = resolveTargetSize(baseImageData.width, baseImageData.height);
 
     if (w === baseImageData.width && h === baseImageData.height) {
       showToast("サイズは変更されていません");
@@ -3669,8 +4352,25 @@ ${addressBlock}
     }
   });
 
-  batchResizeMode.addEventListener("change", updateBatchResizeHint);
-  batchLongEdge.addEventListener("input", updateBatchResizeHint);
+  batchResizeMode.addEventListener("change", () => {
+    clearExportPresetSelection();
+    updateBatchResizeHint();
+  });
+  batchLongEdge.addEventListener("input", () => {
+    clearExportPresetSelection();
+    updateBatchResizeHint();
+  });
+
+  if (exportPresetPicker) {
+    exportPresetPicker.querySelectorAll(".export-preset-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        if (!btn.dataset.preset) return;
+        applyExportPreset(btn.dataset.preset);
+      });
+    });
+  }
+
+  restoreExportPresetPreference();
 
   batchResizeBtn.addEventListener("click", () => {
     batchResizeAll({ andSave: false });
@@ -3681,8 +4381,6 @@ ${addressBlock}
   batchResizeDownloadBtn.addEventListener("click", () => {
     batchResizeAll({ andSave: true, forceDownload: true });
   });
-
-  updateBatchResizeHint();
 
   brushSize.addEventListener("input", () => {
     brushSizeLabel.textContent = brushSize.value;
@@ -3699,6 +4397,28 @@ ${addressBlock}
   autoMosaicAllBtn.addEventListener("click", () => {
     runAutoMosaicAll();
   });
+
+  if (undoMosaicBtn) {
+    undoMosaicBtn.addEventListener("click", () => {
+      const photo = getActivePhoto();
+      if (!photo) return;
+      if (!restorePreMosaicForPhoto(photo)) {
+        showToast("戻せるモザイクがありません", { error: true });
+        return;
+      }
+      showToast("モザイクを元に戻しました");
+      fileHint.textContent = "モザイクを元に戻しました";
+    });
+  }
+
+  if (hideBrushModePicker) {
+    hideBrushModePicker.querySelectorAll(".hide-brush-mode-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        if (!btn.dataset.mode || btn.disabled) return;
+        setHideBrushMode(btn.dataset.mode);
+      });
+    });
+  }
 
   [brightness, contrast].forEach((el) => {
     el.addEventListener("input", () => {
@@ -3758,6 +4478,7 @@ ${addressBlock}
     skyKeepClouds.checked = true;
     onSkyControlChange();
     showToast("空を自動置き換えしました");
+    setPanelTab("edit");
     setTool("sky");
   });
 
@@ -3944,9 +4665,18 @@ ${addressBlock}
     if (panning || panMode || spaceHeld) return;
     if (activeTool !== "hide" || !baseImageData) return;
     e.preventDefault();
+    if (hideBrushMode === "restore") {
+      if (!canUndoMosaic(getActivePhoto())) {
+        showToast("復元できるモザイクがありません", { error: true });
+        return;
+      }
+    } else {
+      ensurePreMosaicBeforeEdit(getActivePhoto());
+    }
     painting = true;
     lastPoint = getCanvasPoint(e);
-    mosaicAt(lastPoint.x, lastPoint.y);
+    if (hideBrushMode === "restore") restoreAt(lastPoint.x, lastPoint.y);
+    else mosaicAt(lastPoint.x, lastPoint.y);
     renderEffects();
   }
 
@@ -4026,11 +4756,17 @@ ${addressBlock}
     if (!painting || activeTool !== "hide") return;
     e.preventDefault();
     const point = getCanvasPoint(e);
-    strokeMosaic(lastPoint, point);
+    strokeHideBrush(lastPoint, point);
     lastPoint = point;
   }
 
   function endPointer() {
+    if (painting && activeTool === "hide") {
+      const photo = getActivePhoto();
+      if (photo && baseImageData) {
+        photo.baseImageData = cloneImageData(baseImageData);
+      }
+    }
     painting = false;
     lastPoint = null;
     panning = false;
@@ -4212,14 +4948,55 @@ ${addressBlock}
   }
 
   /**
-   * JPEG で品質・解像度を自動調整し、maxBytes 以下のデータURLを返す
+   * JPEG で品質・解像度を自動調整し、maxBytes 以下でできるだけ上限に近いデータURLを返す
    */
   function exportUnderLimit(sourceCanvas, maxBytes) {
     const mime = "image/jpeg";
     let width = sourceCanvas.width;
     let height = sourceCanvas.height;
 
-    for (let attempt = 0; attempt < 14; attempt += 1) {
+    function encodeAtQuality(exportCanvas, quality) {
+      const url = exportCanvas.toDataURL(mime, quality);
+      return { url, size: dataUrlByteSize(url), quality };
+    }
+
+    function findBestQuality(exportCanvas, w, h) {
+      let lo = 0.05;
+      let hi = 0.99;
+      let best = null;
+
+      for (let i = 0; i < 14; i += 1) {
+        const quality = (lo + hi) / 2;
+        const candidate = encodeAtQuality(exportCanvas, quality);
+        if (candidate.size <= maxBytes) {
+          best = { ...candidate, width: w, height: h };
+          lo = quality;
+        } else {
+          hi = quality;
+        }
+      }
+
+      if (!best) return null;
+
+      let q = best.quality;
+      let step = 0.03;
+      while (step > 0.002) {
+        const tryQ = Math.min(0.99, q + step);
+        const candidate = encodeAtQuality(exportCanvas, tryQ);
+        if (candidate.size <= maxBytes) {
+          if (candidate.size >= best.size) {
+            best = { ...candidate, width: w, height: h };
+          }
+          q = tryQ;
+        } else {
+          step /= 2;
+        }
+      }
+
+      return best;
+    }
+
+    for (let attempt = 0; attempt < 16; attempt += 1) {
       const w = Math.max(1, Math.round(width));
       const h = Math.max(1, Math.round(height));
       const scaled =
@@ -4235,26 +5012,11 @@ ${addressBlock}
       exportCtx.fillRect(0, 0, w, h);
       exportCtx.drawImage(scaled, 0, 0);
 
-      let best = null;
-      let lo = 0.32;
-      let hi = 0.92;
-
-      for (let i = 0; i < 10; i += 1) {
-        const quality = (lo + hi) / 2;
-        const url = exportCanvas.toDataURL(mime, quality);
-        const size = dataUrlByteSize(url);
-        if (size <= maxBytes) {
-          best = { url, size, quality, width: w, height: h };
-          lo = quality;
-        } else {
-          hi = quality;
-        }
-      }
-
+      const best = findBestQuality(exportCanvas, w, h);
       if (best) return best;
 
-      width *= 0.82;
-      height *= 0.82;
+      width *= 0.85;
+      height *= 0.85;
     }
 
     const w = Math.max(1, Math.round(width));
@@ -4267,8 +5029,8 @@ ${addressBlock}
     exportCtx.fillStyle = "#ffffff";
     exportCtx.fillRect(0, 0, w, h);
     exportCtx.drawImage(scaled, 0, 0);
-    const url = exportCanvas.toDataURL(mime, 0.28);
-    return { url, size: dataUrlByteSize(url), quality: 0.28, width: w, height: h };
+    const fallback = encodeAtQuality(exportCanvas, 0.2);
+    return { ...fallback, width: w, height: h };
   }
 
   const MAX_DOWNLOAD_BYTES = 250 * 1024;
@@ -4348,13 +5110,81 @@ ${addressBlock}
     return new Blob([bytes], { type: mime });
   }
 
-  function makeExportName(photoName, index) {
-    const base = (photoName || "lumen-edit")
-      .replace(/\.[^.]+$/, "")
-      .replace(/[^\w\u3040-\u30ff\u3400-\u9fff\-]+/g, "_")
-      .slice(0, 40);
-    const suffix = index != null ? `-${index + 1}` : "";
-    return `${base || "lumen-edit"}${suffix}-${Date.now()}.jpg`;
+  function getExportFileName(photo) {
+    if (!photo) return "";
+    const { base } = splitFileName(photo.name);
+    const safe = sanitizeBaseName(base);
+    return safe ? `${safe}.jpg` : "";
+  }
+
+  function getDuplicateExportNames(photoList) {
+    const seen = new Map();
+    const duplicates = new Set();
+    photoList.forEach((photo) => {
+      const name = getExportFileName(photo);
+      if (!name) return;
+      if (seen.has(name)) duplicates.add(name);
+      else seen.set(name, photo.id);
+    });
+    return [...duplicates];
+  }
+
+  function persistActivePhotoName() {
+    const photo = getActivePhoto();
+    if (!photo) return true;
+    const base = sanitizeBaseName(photoNameInput.value);
+    if (!base) {
+      const msg = "名前を入力してください";
+      showToast(msg, { error: true });
+      fileHint.textContent = msg;
+      nameField.hidden = false;
+      setPanelTab("photos");
+      photoNameInput.focus();
+      return false;
+    }
+    const { ext } = splitFileName(photo.name);
+    photo.name = `${base}${ext || ".jpg"}`;
+    if (photo.id === activePhotoId) fileHint.textContent = photo.name;
+    syncNameField();
+    renderGallery();
+    return true;
+  }
+
+  function assertExportNamesReady(photoList) {
+    const missing = photoList.filter((photo) => !getExportFileName(photo));
+    if (missing.length) {
+      const msg = "名前が未設定の写真があります。名前を設定してください";
+      showToast(msg, { error: true });
+      fileHint.textContent = msg;
+      if (photoNameInput) {
+        nameField.hidden = false;
+        setPanelTab("photos");
+        photoNameInput.focus();
+      }
+      return false;
+    }
+
+    const duplicates = getDuplicateExportNames(photoList);
+    if (duplicates.length) {
+      const msg = `ファイル名が重複しています（${duplicates.join("、")}）。各写真の名前を変更してください`;
+      showToast(msg, { error: true });
+      fileHint.textContent = msg;
+      if (photoNameInput) {
+        nameField.hidden = false;
+        setPanelTab("photos");
+        photoNameInput.focus();
+        photoNameInput.select();
+      }
+      return false;
+    }
+
+    return true;
+  }
+
+  function isWatermarkEnabledForPhoto(photo) {
+    if (!photo) return isWatermarkEnabled();
+    if (photo.id === activePhotoId) return isWatermarkEnabled();
+    return photo.watermarkEnabled !== false;
   }
 
   function exportPhotoCanvas(photo, { watermark = true } = {}) {
@@ -4374,7 +5204,9 @@ ${addressBlock}
     temp.width = w;
     temp.height = h;
     temp.getContext("2d").putImageData(out, 0, 0);
-    if (watermark) applyWatermarkToCanvas(temp);
+    if (watermark && isWatermarkEnabledForPhoto(photo)) {
+      applyWatermarkToCanvas(temp, getWatermarkPositionForPhoto(photo));
+    }
     return temp;
   }
 
@@ -4428,12 +5260,15 @@ ${addressBlock}
   async function saveImage({ forceDownload = false } = {}) {
     if (!baseImageData) return;
     snapshotCurrent();
+    if (!persistActivePhotoName()) return;
+    if (!assertExportNamesReady(photos)) return;
 
     const lit = buildLitCanvas();
     if (!lit) return;
-    const result = exportUnderLimit(lit, MAX_DOWNLOAD_BYTES);
+    const result = exportUnderLimit(lit, getActiveExportByteLimit());
     const active = getActivePhoto();
-    const filename = makeExportName(active?.name);
+    const filename = getExportFileName(active);
+    if (!filename) return;
 
     if (!forceDownload && canUseFolderSave) {
       try {
@@ -4472,6 +5307,8 @@ ${addressBlock}
   async function saveAllImages({ forceDownload = false } = {}) {
     if (!photos.length) return;
     snapshotCurrent();
+    if (!persistActivePhotoName()) return;
+    if (!assertExportNamesReady(photos)) return;
 
     if (!forceDownload && canUseFolderSave && !saveDirHandle) {
       await pickSaveFolder();
@@ -4488,8 +5325,12 @@ ${addressBlock}
         failed += 1;
         continue;
       }
-      const result = exportUnderLimit(lit, MAX_DOWNLOAD_BYTES);
-      const filename = makeExportName(photo.name, i);
+      const result = exportUnderLimit(lit, getActiveExportByteLimit());
+      const filename = getExportFileName(photo);
+      if (!filename) {
+        failed += 1;
+        continue;
+      }
 
       try {
         if (!forceDownload && canUseFolderSave) {
