@@ -9,10 +9,10 @@
 ```bash
 cd lumen-photo   # または photo フォルダ
 ruby -run -e httpd . -p 5173
-open http://127.0.0.1:5173/
+open -a "Google Chrome" http://127.0.0.1:5173/
 ```
 
-macOS では `開く.command` をダブルクリックでも起動できます。
+macOS では `開く.command` をダブルクリックでも起動できます（**Google Chrome** で開きます）。
 
 > `index.html` を直接開くと CSS/JS が読み込まれないことがあります。必ずローカルサーバー経由で開いてください。
 

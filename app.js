@@ -4,11 +4,18 @@
   const fileInput = document.getElementById("fileInput");
   const fileHint = document.getElementById("fileHint");
   const dropzone = document.getElementById("dropzone");
+  const loadingOverlay = document.getElementById("loadingOverlay");
+  const loadingTitle = document.getElementById("loadingTitle");
+  const loadingDetail = document.getElementById("loadingDetail");
+  const loadingProgress = document.getElementById("loadingProgress");
+  const loadingProgressBar = document.getElementById("loadingProgressBar");
+  const uploadBtn = document.querySelector(".upload-btn");
   const canvasWrap = document.getElementById("canvasWrap");
   const canvas = document.getElementById("canvas");
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   const toolsSection = document.getElementById("toolsSection");
   const resetBtn = document.getElementById("resetBtn");
+  const reloadAppBtn = document.getElementById("reloadAppBtn");
   const downloadBtn = document.getElementById("downloadBtn");
   const downloadAllBtn = document.getElementById("downloadAllBtn");
   const saveBtn = document.getElementById("saveBtn");
@@ -30,6 +37,7 @@
   const clearCaptionBtn = document.getElementById("clearCaptionBtn");
   const copyAllCaptionsBtn = document.getElementById("copyAllCaptionsBtn");
   const downloadCaptionsBtn = document.getElementById("downloadCaptionsBtn");
+  const watermarkEnabled = document.getElementById("watermarkEnabled");
   const geminiApiKey = document.getElementById("geminiApiKey");
   const verifyApiKeyBtn = document.getElementById("verifyApiKeyBtn");
   const apiKeyStatus = document.getElementById("apiKeyStatus");
@@ -56,12 +64,38 @@
   const brushSizeLabel = document.getElementById("brushSizeLabel");
   const mosaicSize = document.getElementById("mosaicSize");
   const mosaicSizeLabel = document.getElementById("mosaicSizeLabel");
+  const autoDetectPeople = document.getElementById("autoDetectPeople");
+  const autoDetectPlates = document.getElementById("autoDetectPlates");
+  const autoMosaicBtn = document.getElementById("autoMosaicBtn");
+  const autoMosaicAllBtn = document.getElementById("autoMosaicAllBtn");
+  const autoMosaicStatus = document.getElementById("autoMosaicStatus");
 
   const brightness = document.getElementById("brightness");
   const brightnessLabel = document.getElementById("brightnessLabel");
   const contrast = document.getElementById("contrast");
   const contrastLabel = document.getElementById("contrastLabel");
   const resetLight = document.getElementById("resetLight");
+  const skyStrength = document.getElementById("skyStrength");
+  const skyStrengthLabel = document.getElementById("skyStrengthLabel");
+  const skyBrightness = document.getElementById("skyBrightness");
+  const skyBrightnessLabel = document.getElementById("skyBrightnessLabel");
+  const skyTemperature = document.getElementById("skyTemperature");
+  const skyTemperatureLabel = document.getElementById("skyTemperatureLabel");
+  const skyScale = document.getElementById("skyScale");
+  const skyScaleLabel = document.getElementById("skyScaleLabel");
+  const skyShift = document.getElementById("skyShift");
+  const skyShiftLabel = document.getElementById("skyShiftLabel");
+  const skyRange = document.getElementById("skyRange");
+  const skyRangeLabel = document.getElementById("skyRangeLabel");
+  const skyEdgeFade = document.getElementById("skyEdgeFade");
+  const skyEdgeFadeLabel = document.getElementById("skyEdgeFadeLabel");
+  const skyForeground = document.getElementById("skyForeground");
+  const skyForegroundLabel = document.getElementById("skyForegroundLabel");
+  const skyKeepClouds = document.getElementById("skyKeepClouds");
+  const skyAutoBtn = document.getElementById("skyAutoBtn");
+  const resetSky = document.getElementById("resetSky");
+  const skyApplyAllBtn = document.getElementById("skyApplyAllBtn");
+  const skyPresetGrid = document.getElementById("skyPresetGrid");
 
   const cropAspect = document.getElementById("cropAspect");
   const resetCrop = document.getElementById("resetCrop");
@@ -151,6 +185,7 @@
   let sourceImage = null;
   /** Base pixels after structural edits (before light effects) */
   let baseImageData = null;
+  let skyMaskCache = { key: "", mask: null };
   let aspectRatio = 1;
   let activeTool = "resize";
   let painting = false;
@@ -181,18 +216,112 @@
    *   baseImageData: ImageData | null,
    *   brightness: string,
    *   contrast: string,
+   *   skyPreset: string,
+   *   skyStrength: string,
+   *   skyBrightness: string,
+   *   skyTemperature: string,
+   *   skyScale: string,
+   *   skyShift: string,
+   *   skyRange: string,
+   *   skyEdgeFade: string,
+   *   skyForeground: string,
+   *   skyKeepClouds: boolean,
    *   captionCategory: string,
    *   caption: string,
    * }>} */
   let photos = [];
   let activePhotoId = null;
   let photoSeq = 0;
+  let importBusy = false;
+  const MAX_IMAGE_EDGE = 8192;
+  const IMAGE_FILE_RE = /\.(jpe?g|png|gif|webp|heic|heif|avif|bmp|tiff?)$/i;
 
   /** 不動産登録向けキャプション。《杏栄》込みで合計20文字以内 */
   const CAPTION_MAX_LEN = 20;
   const CAPTION_PREFIX = "《杏栄》";
   const CAPTION_BODY_MAX = CAPTION_MAX_LEN - Array.from(CAPTION_PREFIX).length;
   const PROPERTY_TYPE_STORAGE = "lumen-property-type";
+
+  /** @type {Record<string, { name: string, zenith: {r:number,g:number,b:number}, horizon: {r:number,g:number,b:number}, glow: {r:number,g:number,b:number,strength:number}|null, clouds: number, warmth: number }>} */
+  const SKY_PRESETS = {
+    "clear-blue": {
+      name: "晴れ",
+      zenith: { r: 42, g: 118, b: 198 },
+      horizon: { r: 145, g: 192, b: 236 },
+      glow: null,
+      clouds: 0.4,
+      warmth: 0,
+    },
+    "deep-blue": {
+      name: "青空",
+      zenith: { r: 25, g: 85, b: 175 },
+      horizon: { r: 95, g: 165, b: 225 },
+      glow: null,
+      clouds: 0.25,
+      warmth: -0.1,
+    },
+    "soft-blue": {
+      name: "淡い青",
+      zenith: { r: 120, g: 175, b: 215 },
+      horizon: { r: 190, g: 215, b: 240 },
+      glow: null,
+      clouds: 0.5,
+      warmth: 0,
+    },
+    "sunset": {
+      name: "夕焼け",
+      zenith: { r: 35, g: 55, b: 120 },
+      horizon: { r: 245, g: 145, b: 75 },
+      glow: { r: 255, g: 110, b: 60, strength: 0.55 },
+      clouds: 0.35,
+      warmth: 0.8,
+    },
+    "twilight": {
+      name: "夕暮れ",
+      zenith: { r: 25, g: 35, b: 85 },
+      horizon: { r: 180, g: 100, b: 130 },
+      glow: { r: 220, g: 90, b: 100, strength: 0.4 },
+      clouds: 0.3,
+      warmth: 0.5,
+    },
+    "dawn": {
+      name: "朝焼け",
+      zenith: { r: 85, g: 125, b: 175 },
+      horizon: { r: 255, g: 185, b: 140 },
+      glow: { r: 255, g: 160, b: 100, strength: 0.45 },
+      clouds: 0.35,
+      warmth: 0.6,
+    },
+    "overcast": {
+      name: "曇り",
+      zenith: { r: 145, g: 158, b: 170 },
+      horizon: { r: 195, g: 200, b: 208 },
+      glow: null,
+      clouds: 0.7,
+      warmth: -0.15,
+    },
+    "storm": {
+      name: "嵐",
+      zenith: { r: 45, g: 55, b: 72 },
+      horizon: { r: 105, g: 115, b: 128 },
+      glow: null,
+      clouds: 0.85,
+      warmth: -0.3,
+    },
+  };
+
+  const SKY_PRESET_ORDER = [
+    "clear-blue",
+    "deep-blue",
+    "soft-blue",
+    "sunset",
+    "twilight",
+    "dawn",
+    "overcast",
+    "storm",
+  ];
+
+  const DEFAULT_SKY_PRESET = "clear-blue";
 
   const PROPERTY_TYPES = {
     mansion: {
@@ -384,6 +513,42 @@
     updateBatchButtons();
   }
 
+  async function yieldToUi() {
+    await new Promise((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(resolve));
+    });
+  }
+
+  function setImportLoading(active, { title, detail, progress } = {}) {
+    importBusy = active;
+    if (fileInput) fileInput.disabled = active;
+    if (uploadBtn) {
+      uploadBtn.classList.toggle("is-loading", active);
+      uploadBtn.setAttribute("aria-busy", active ? "true" : "false");
+    }
+    if (dropzone) dropzone.classList.toggle("is-busy", active);
+    if (!loadingOverlay) return;
+
+    loadingOverlay.hidden = !active;
+    loadingOverlay.setAttribute("aria-busy", active ? "true" : "false");
+
+    if (loadingTitle) {
+      loadingTitle.textContent = title || "写真を読み込んでいます";
+    }
+    if (loadingDetail) {
+      loadingDetail.textContent = detail || "";
+    }
+    if (loadingProgress && loadingProgressBar) {
+      const showBar = active && progress != null;
+      loadingProgress.hidden = !showBar;
+      if (showBar) {
+        const pct = Math.min(100, Math.max(0, Number(progress)));
+        loadingProgressBar.style.width = `${pct}%`;
+        loadingProgress.setAttribute("aria-valuenow", String(Math.round(pct)));
+      }
+    }
+  }
+
   function updateBatchButtons() {
     const multi = photos.length > 1;
     downloadAllBtn.hidden = !multi;
@@ -422,6 +587,16 @@
     photo.baseImageData = cloneImageData(baseImageData);
     photo.brightness = brightness.value;
     photo.contrast = contrast.value;
+    photo.skyPreset = getActiveSkyPresetId();
+    photo.skyStrength = skyStrength.value;
+    photo.skyBrightness = skyBrightness.value;
+    photo.skyTemperature = skyTemperature.value;
+    photo.skyScale = skyScale.value;
+    photo.skyShift = skyShift.value;
+    photo.skyRange = skyRange.value;
+    photo.skyEdgeFade = skyEdgeFade.value;
+    photo.skyForeground = skyForeground.value;
+    photo.skyKeepClouds = skyKeepClouds.checked;
   }
 
   function splitFileName(name) {
@@ -601,13 +776,48 @@
 
   const GEMINI_KEY_STORAGE = "lumen-gemini-api-key";
   const PROPERTY_ADDRESS_STORAGE = "lumen-property-address";
+  const WATERMARK_STORAGE = "lumen-watermark-enabled";
+  const WATERMARK_SRC = "assets/kyouei-watermark.png";
+
+  /** @type {HTMLImageElement | null} */
+  let watermarkImage = null;
+  let watermarkLoadPromise = null;
   const GEMINI_MODELS = [
-    "gemini-2.5-flash-lite",
-    "gemini-2.0-flash",
     "gemini-2.5-flash",
+    "gemini-2.0-flash",
     "gemini-flash-latest",
+    "gemini-2.5-flash-lite",
     "gemini-1.5-flash",
   ];
+
+  const CATEGORY_VISUAL_HINTS = {
+    外観: "外壁材・色、階数、バルコニー、エントランス、駐車場、植栽、周辺建物",
+    間取り: "間取り図の部屋配置、水回り位置、収納、バルコニー位置（面積数値は書かない）",
+    リビング: "採光・窓、床材、天井高、LDKの広がり、家具配置の余白",
+    "居間・リビング": "採光・窓、床材、居間の広さ、居室の雰囲気",
+    ダイニング: "テーブルスペース、キッチンとの位置関係、採光、収納",
+    キッチン: "コンロ種別、食洗機、収納、カウンター形状（対面・L字等）、換気扇、窓",
+    洋室: "窓・採光、床材、クローゼット・収納、部屋の広さ",
+    和室: "畳、障子・襖、収納、続き間の有無",
+    寝室: "採光、床材、収納、落ち着いた雰囲気",
+    子供部屋: "採光、収納、床材、部屋の広さ",
+    玄関: "収納、土間の広さ、明るさ、靴箱",
+    廊下: "動線、明るさ、収納、床材",
+    収納: "クローゼット、パントリー、棚の量、ウォークインの有無",
+    浴室: "浴槽、シャワー、洗面一体型、窓、清潔感",
+    洗面: "洗面台、三面鏡、収納、洗濯機置場",
+    トイレ: "温水洗浄便座、収納、清潔感、窓",
+    バルコニー: "広さ、方向感、目隠し、洗濯物干し",
+    共用部: "エントランス、廊下、宅配ボックス、清潔感",
+    庭: "庭の広さ、植栽、プライバシー、使いやすさ",
+    駐車場: "車種が入るスペース、屋根の有無、舗装",
+    現地: "地盤の状態、周囲の建物、日当たり、道路との関係",
+    前面道路: "道路幅、舗装、歩道、角地かどうか（数値は書かない）",
+    整形地: "敷地形状、建築しやすさ、周囲との関係",
+    建築向き: "平坦さ、周辺環境、日当たり、建築イメージ",
+    周辺環境: "商業施設、公園、学校、街路樹、街並み（距離の断定はしない）",
+    その他: "写真の主題となる設備・空間・特徴",
+  };
 
   function setAiStatus(message, isError = false) {
     if (!aiCaptionStatus) return;
@@ -679,14 +889,63 @@
   }
 
   function canvasFromPhoto(photo) {
-    if (photo.id === activePhotoId && baseImageData) {
-      const lit = buildLitCanvas();
-      if (lit) return lit;
-    }
-    return photoSourceCanvas(photo);
+    return exportPhotoCanvas(photo, { watermark: false }) || photoSourceCanvas(photo);
   }
 
-  function imageToJpegBase64(sourceCanvas, maxEdge = 1280) {
+  function isWatermarkEnabled() {
+    return watermarkEnabled ? watermarkEnabled.checked : true;
+  }
+
+  function loadWatermarkImage() {
+    if (watermarkImage) return Promise.resolve(watermarkImage);
+    if (watermarkLoadPromise) return watermarkLoadPromise;
+    watermarkLoadPromise = new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        watermarkImage = img;
+        resolve(img);
+      };
+      img.onerror = () => {
+        watermarkLoadPromise = null;
+        reject(new Error("ロゴ画像の読込に失敗しました"));
+      };
+      img.src = WATERMARK_SRC;
+    });
+    return watermarkLoadPromise;
+  }
+
+  function drawWatermarkOnCanvas(targetCanvas) {
+    if (!isWatermarkEnabled() || !watermarkImage) return;
+    const ctx2 = targetCanvas.getContext("2d");
+    const w = targetCanvas.width;
+    const h = targetCanvas.height;
+    const shortEdge = Math.min(w, h);
+    const logoW = clamp(shortEdge * 0.13, 64, 200);
+    const aspect = watermarkImage.naturalWidth / watermarkImage.naturalHeight;
+    const logoH = logoW / aspect;
+    const margin = clamp(shortEdge * 0.022, 10, 28);
+    ctx2.save();
+    ctx2.globalAlpha = 0.58;
+    ctx2.drawImage(watermarkImage, margin, margin, logoW, logoH);
+    ctx2.restore();
+  }
+
+  function applyWatermarkToCanvas(canvas) {
+    drawWatermarkOnCanvas(canvas);
+    return canvas;
+  }
+
+  function saveWatermarkPreference() {
+    localStorage.setItem(WATERMARK_STORAGE, isWatermarkEnabled() ? "1" : "0");
+  }
+
+  function restoreWatermarkPreference() {
+    if (!watermarkEnabled) return;
+    const saved = localStorage.getItem(WATERMARK_STORAGE);
+    watermarkEnabled.checked = saved !== "0";
+  }
+
+  function imageToJpegBase64(sourceCanvas, maxEdge = 1536) {
     const scale = Math.min(1, maxEdge / Math.max(sourceCanvas.width, sourceCanvas.height));
     const w = Math.max(1, Math.round(sourceCanvas.width * scale));
     const h = Math.max(1, Math.round(sourceCanvas.height * scale));
@@ -699,7 +958,7 @@
     octx.imageSmoothingEnabled = true;
     octx.imageSmoothingQuality = "high";
     octx.drawImage(sourceCanvas, 0, 0, w, h);
-    const dataUrl = out.toDataURL("image/jpeg", 0.82);
+    const dataUrl = out.toDataURL("image/jpeg", 0.9);
     return dataUrl.split(",")[1];
   }
 
@@ -713,7 +972,7 @@
     else localStorage.removeItem(PROPERTY_ADDRESS_STORAGE);
   }
 
-  function buildCaptionPrompt(hintCategory) {
+  function buildCaptionPrompt(hintCategory, photoName = "") {
     const typeConfig = getPropertyTypeConfig();
     const categories = getCaptionCategories().join(" / ");
     const address = getPropertyAddress();
@@ -732,29 +991,48 @@
       : `指定カテゴリ: （未指定）
 カテゴリは写真内容から判断し、次のいずれかにする: ${categories}`;
 
-    return `あなたは日本の不動産会社の物件写真キャプション担当です。
-登録サイト用の短い写真コメントを作成してください。
+    const visualHint = hintCategory
+      ? CATEGORY_VISUAL_HINTS[hintCategory] || CATEGORY_VISUAL_HINTS["その他"]
+      : "写真の主題となる空間・設備・景色を特定する";
+    const visualBlock = `このカテゴリで写真を見るときの観察ポイント:
+${visualHint}`;
+
+    const templateExamples = hintCategory ? getCaptionTemplates()[hintCategory] : null;
+    const exampleBlock = templateExamples?.length
+      ? `文体の参考（写真の内容と一致する場合のみ。無理に使わない）:
+${templateExamples.map((t) => `・${t}`).join("\n")}`
+      : "";
+
+    const fileBlock = photoName
+      ? `写真ファイル名（参考・断定しない）: ${photoName}`
+      : "";
+
+    return `添付写真を注意深く観察し、不動産登録サイト用の短いキャプションを作成してください。
 
 物件種別: ${typeConfig.label}
 種別の注意: ${typeConfig.focus}
 
 ${categoryBlock}
+${visualBlock}
+${exampleBlock}
+${fileBlock}
 ${addressBlock}
+
+作業手順（必ず守る）:
+1. 写真に実際に写っているものだけを observation に列挙する（推測・一般論は書かない）
+2. observation を根拠に caption を1つ作る
+3. 写っていない設備・特徴は caption に入れない（例: 食洗機が見えなければ「食洗機付き」と書かない）
 
 出力ルール:
 1. 必ず次のJSONのみを返す（前後に説明文やコードフェンスを付けない）
-{"category":"カテゴリ名","caption":"本文のみ（《杏栄》なし）"}
+{"category":"カテゴリ名","observation":"写真で確認できた事実を短く","caption":"本文のみ（《杏栄》なし）"}
 2. category は指定があればそのカテゴリ。なければ次のいずれか: ${categories}
 3. caption は日本語。先頭の《杏栄》（4文字）を含めた合計が20文字以内になるよう、本文は最大${CAPTION_BODY_MAX}文字
 4. 【カテゴリ】や■、《杏栄》は付けない。名詞句・短いフレーズのみ
-5. 良い例（本文のみ）:
-   - キッチン: 「対面キッチン」「食洗機付きキッチン」
-   - リビング: 「明るいリビング」「日当たり良好LDK」
-   - 土地・現地: 「整った現地」「接道状況良好」
-6. 指定カテゴリと物件種別に合わない表現は禁止
-7. 誇大表現・虚偽（正確な駅距離・面積・価格など）は禁止
-8. 句読点や「です・ます」はなるべく使わず、コンパクトに
-9. caption に「《杏栄》」は付けない（システム側で付与し、合計20文字以内にする）`;
+5. 指定カテゴリと物件種別に合わない表現は禁止
+6. 誇大表現・虚偽（正確な駅距離・面積・価格など）は禁止
+7. 句読点や「です・ます」はなるべく使わず、コンパクトに
+8. caption に「《杏栄》」は付けない（システム側で付与する）`;
   }
 
   function parseCaptionResponse(text) {
@@ -828,9 +1106,16 @@ ${addressBlock}
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  async function callGeminiCaption(base64Jpeg, hintCategory, apiKey) {
-    const prompt = buildCaptionPrompt(hintCategory);
+  async function callGeminiCaption(base64Jpeg, hintCategory, apiKey, photoName = "") {
+    const prompt = buildCaptionPrompt(hintCategory, photoName);
     const baseBody = {
+      systemInstruction: {
+        parts: [
+          {
+            text: "あなたは日本の不動産物件写真のキャプション専門家です。写真に写っている事実だけを根拠に、短く正確な日本語キャプションを作ります。推測や一般論で設備の有無を断定しません。",
+          },
+        ],
+      },
       contents: [
         {
           parts: [
@@ -840,8 +1125,8 @@ ${addressBlock}
         },
       ],
       generationConfig: {
-        temperature: 0.4,
-        maxOutputTokens: 256,
+        temperature: 0.2,
+        maxOutputTokens: 384,
       },
     };
 
@@ -934,8 +1219,8 @@ ${addressBlock}
     }
 
     const source = canvasFromPhoto(photo);
-    const base64 = imageToJpegBase64(source, 1024);
-    const result = await callGeminiCaption(base64, category, apiKey);
+    const base64 = imageToJpegBase64(source, 1536);
+    const result = await callGeminiCaption(base64, category, apiKey, photo.name || "");
 
     // ユーザー指定カテゴリを優先して固定
     photo.captionCategory = category || result.category;
@@ -1183,15 +1468,29 @@ ${addressBlock}
   }
 
   function clearEditor() {
+    setImportLoading(false);
     sourceImage = null;
     baseImageData = null;
+    skyMaskCache = { key: "", mask: null };
     activePhotoId = null;
     cropRect = null;
     previewAngle = 0;
     rotateAngle.value = "0";
     brightness.value = "0";
     contrast.value = "0";
+    skyStrength.value = "0";
+    skyBrightness.value = "0";
+    skyTemperature.value = "0";
+    skyScale.value = "100";
+    skyShift.value = "0";
+    skyRange.value = "55";
+    skyEdgeFade.value = "50";
+    skyForeground.value = "0";
+    skyKeepClouds.checked = true;
+    setActiveSkyPresetId(DEFAULT_SKY_PRESET);
     updateLightLabels();
+    updateSkyLabels();
+    updateSkyPresetActive();
     updateRotateLabel();
     canvas.width = 0;
     canvas.height = 0;
@@ -1208,11 +1507,23 @@ ${addressBlock}
 
   function restorePhoto(photo) {
     sourceImage = photo.sourceImage;
-    brightness.value = photo.brightness;
-    contrast.value = photo.contrast;
+    brightness.value = photo.brightness || "0";
+    contrast.value = photo.contrast || "0";
+    setActiveSkyPresetId(photo.skyPreset || DEFAULT_SKY_PRESET);
+    skyStrength.value = photo.skyStrength || "0";
+    skyBrightness.value = photo.skyBrightness || "0";
+    skyTemperature.value = photo.skyTemperature || "0";
+    skyScale.value = photo.skyScale || "100";
+    skyShift.value = photo.skyShift || "0";
+    skyRange.value = photo.skyRange || "55";
+    skyEdgeFade.value = photo.skyEdgeFade ?? "50";
+    skyForeground.value = photo.skyForeground || "0";
+    skyKeepClouds.checked = photo.skyKeepClouds !== false;
     previewAngle = 0;
     rotateAngle.value = "0";
     updateLightLabels();
+    updateSkyLabels();
+    updateSkyPresetActive();
     updateRotateLabel();
 
     if (photo.baseImageData) {
@@ -1221,6 +1532,7 @@ ${addressBlock}
       canvas.height = data.height;
       ctx.putImageData(data, 0, 0);
       baseImageData = data;
+      skyMaskCache = { key: "", mask: null };
       aspectRatio = canvas.width / canvas.height;
       resizeWidth.value = String(canvas.width);
       resizeHeight.value = String(canvas.height);
@@ -1273,13 +1585,43 @@ ${addressBlock}
     clearEditor();
   }
 
+  function isImageFile(file) {
+    if (!file) return false;
+    if (file.type && file.type.startsWith("image/")) return true;
+    return IMAGE_FILE_RE.test(String(file.name || ""));
+  }
+
+  function isHeicFile(file) {
+    const type = String(file?.type || "").toLowerCase();
+    const name = String(file?.name || "").toLowerCase();
+    return type.includes("heic") || type.includes("heif") || /\.heic$|\.heif$/.test(name);
+  }
+
+  function capImageDimensions(width, height, maxEdge = MAX_IMAGE_EDGE) {
+    const w = Math.max(1, Math.round(width));
+    const h = Math.max(1, Math.round(height));
+    const maxDim = Math.max(w, h);
+    if (maxDim <= maxEdge) return { width: w, height: h };
+    const scale = maxEdge / maxDim;
+    return {
+      width: Math.max(1, Math.round(w * scale)),
+      height: Math.max(1, Math.round(h * scale)),
+    };
+  }
+
   function readImageFile(file) {
     return new Promise((resolve, reject) => {
       const url = URL.createObjectURL(file);
       const img = new Image();
-      img.onload = () => {
-        URL.revokeObjectURL(url);
-        resolve(img);
+      img.onload = async () => {
+        try {
+          if (img.decode) await img.decode();
+          URL.revokeObjectURL(url);
+          resolve(img);
+        } catch (err) {
+          URL.revokeObjectURL(url);
+          reject(err);
+        }
       };
       img.onerror = () => {
         URL.revokeObjectURL(url);
@@ -1290,52 +1632,120 @@ ${addressBlock}
   }
 
   async function addFiles(fileList) {
-    const files = Array.from(fileList || []).filter((f) => f.type.startsWith("image/"));
+    if (importBusy) return;
+
+    const files = Array.from(fileList || []).filter(isImageFile);
     if (!files.length) {
-      fileHint.textContent = "画像ファイルを選んでください";
+      fileHint.textContent = "画像ファイルを選んでください（JPEG / PNG / WEBP など）";
       return;
     }
 
-    snapshotCurrent();
+    const prevHint = fileHint.textContent;
     const added = [];
     let failed = 0;
+    let heicFailed = 0;
+    const total = files.length;
 
-    for (const file of files) {
-      try {
-        const img = await readImageFile(file);
-        photoSeq += 1;
-        const photo = {
-          id: `photo-${photoSeq}-${Date.now()}`,
-          name: file.name,
-          sourceImage: img,
-          thumbUrl: makeThumbUrl(img),
-          baseImageData: null,
-          brightness: "0",
-          contrast: "0",
-          captionCategory: "",
-          caption: "",
-        };
-        photos.push(photo);
-        added.push(photo);
-      } catch (_) {
-        failed += 1;
+    setImportLoading(true, {
+      title: "写真を読み込んでいます",
+      detail: `0 / ${total} 枚`,
+      progress: 2,
+    });
+    fileHint.textContent = `読み込み中… 0 / ${total} 枚`;
+
+    try {
+      snapshotCurrent();
+      await yieldToUi();
+
+      for (let i = 0; i < files.length; i += 1) {
+        const file = files[i];
+        const step = i + 1;
+        setImportLoading(true, {
+          title: "写真を読み込んでいます",
+          detail: `${file.name}（${step} / ${total} 枚）`,
+          progress: ((step - 0.65) / total) * 88,
+        });
+        fileHint.textContent = `読み込み中… ${step} / ${total} 枚`;
+        await yieldToUi();
+
+        try {
+          const img = await readImageFile(file);
+          photoSeq += 1;
+          const photo = {
+            id: `photo-${photoSeq}-${Date.now()}`,
+            name: file.name,
+            sourceImage: img,
+            thumbUrl: makeThumbUrl(img),
+            baseImageData: null,
+            brightness: "0",
+            contrast: "0",
+            skyPreset: DEFAULT_SKY_PRESET,
+            skyStrength: "0",
+            skyBrightness: "0",
+            skyTemperature: "0",
+            skyScale: "100",
+            skyShift: "0",
+            skyRange: "55",
+            skyEdgeFade: "50",
+            skyForeground: "0",
+            skyKeepClouds: true,
+            captionCategory: "",
+            caption: "",
+          };
+          photos.push(photo);
+          added.push(photo);
+        } catch (err) {
+          console.warn(err);
+          failed += 1;
+          if (isHeicFile(file)) heicFailed += 1;
+        }
       }
+
+      if (!added.length) {
+        const msg =
+          heicFailed > 0
+            ? "HEIC形式はChromeでは読み込めません。JPEGに変換するか、Safariで開いてください"
+            : "画像を読み込めませんでした";
+        notifyError(msg);
+        fileHint.textContent = msg;
+        return;
+      }
+
+      setImportLoading(true, {
+        title: "写真を表示しています",
+        detail: "プレビューを準備中…",
+        progress: 94,
+      });
+      fileHint.textContent = "プレビューを準備中…";
+      await yieldToUi();
+
+      activePhotoId = added[0].id;
+      try {
+        restorePhoto(added[0]);
+      } catch (err) {
+        console.error(err);
+        photos.splice(photos.length - added.length, added.length);
+        activePhotoId = photos[0]?.id || null;
+        if (activePhotoId) restorePhoto(getActivePhoto());
+        else clearEditor();
+        notifyError("写真の表示に失敗しました。サイズが大きすぎる可能性があります");
+        fileHint.textContent = "写真の表示に失敗しました";
+        return;
+      }
+
+      const msg =
+        failed > 0
+          ? `${added.length}枚追加（${failed}枚失敗）`
+          : `${added.length}枚追加（合計 ${photos.length}枚）`;
+      fileHint.textContent = msg;
+      showToast(msg);
+    } catch (err) {
+      console.error(err);
+      notifyError("写真の読み込みに失敗しました");
+      fileHint.textContent = prevHint || "読み込みに失敗しました";
+    } finally {
+      setImportLoading(false);
     }
-
-    if (!added.length) {
-      notifyError("画像を読み込めませんでした");
-      return;
-    }
-
-    activePhotoId = added[0].id;
-    restorePhoto(added[0]);
-
-    const msg =
-      failed > 0
-        ? `${added.length}枚追加（${failed}枚失敗）`
-        : `${added.length}枚追加（合計 ${photos.length}枚）`;
-    fileHint.textContent = msg;
-    showToast(msg);
   }
 
   function getFitScale() {
@@ -1423,11 +1833,13 @@ ${addressBlock}
   }
 
   function setCanvasFromImage(img, width, height) {
-    canvas.width = Math.max(1, Math.round(width));
-    canvas.height = Math.max(1, Math.round(height));
+    const capped = capImageDimensions(width, height);
+    canvas.width = capped.width;
+    canvas.height = capped.height;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
     baseImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    skyMaskCache = { key: "", mask: null };
     aspectRatio = canvas.width / canvas.height;
     resizeWidth.value = String(canvas.width);
     resizeHeight.value = String(canvas.height);
@@ -1449,16 +1861,369 @@ ${addressBlock}
     return Math.min(max, Math.max(min, v));
   }
 
-  function buildLitCanvas() {
-    if (!baseImageData) return null;
-    const w = baseImageData.width;
-    const h = baseImageData.height;
-    const out = ctx.createImageData(w, h);
-    const src = baseImageData.data;
-    const dst = out.data;
-    const bright = Number(brightness.value);
-    const contrastVal = Number(contrast.value);
+  function getSkyPreset(id) {
+    return SKY_PRESETS[id] || SKY_PRESETS[DEFAULT_SKY_PRESET];
+  }
+
+  let activeSkyPresetId = DEFAULT_SKY_PRESET;
+
+  function getActiveSkyPresetId() {
+    return activeSkyPresetId;
+  }
+
+  function setActiveSkyPresetId(id) {
+    activeSkyPresetId = SKY_PRESETS[id] ? id : DEFAULT_SKY_PRESET;
+    updateSkyPresetActive();
+  }
+
+  function resolvePhotoSkyPresetId(photo) {
+    if (photo?.skyPreset && SKY_PRESETS[photo.skyPreset]) return photo.skyPreset;
+    return DEFAULT_SKY_PRESET;
+  }
+
+  function buildSkyOptions({
+    presetId,
+    strength,
+    brightness,
+    temperature,
+    scale,
+    shift,
+    range,
+    edgeFade,
+    foreground,
+    keepClouds,
+  }) {
+    return {
+      preset: getSkyPreset(presetId),
+      strength: Number(strength || 0) / 100,
+      brightness: Number(brightness || 0),
+      temperature: Number(temperature || 0),
+      scale: Number(scale || 100) / 100,
+      shift: Number(shift || 0) / 100,
+      range: Number(range || 55) / 100,
+      edgeFade: Number(edgeFade ?? 50) / 100,
+      foreground: Number(foreground || 0) / 100,
+      keepClouds: keepClouds !== false,
+    };
+  }
+
+  function hashNoise(x, y) {
+    const n = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
+    return n - Math.floor(n);
+  }
+
+  function softNoise(x, y) {
+    const x0 = Math.floor(x);
+    const y0 = Math.floor(y);
+    const fx = x - x0;
+    const fy = y - y0;
+    const ux = fx * fx * (3 - 2 * fx);
+    const uy = fy * fy * (3 - 2 * fy);
+    const a = hashNoise(x0, y0);
+    const b = hashNoise(x0 + 1, y0);
+    const c = hashNoise(x0, y0 + 1);
+    const d = hashNoise(x0 + 1, y0 + 1);
+    return a * (1 - ux) * (1 - uy) + b * ux * (1 - uy) + c * (1 - ux) * uy + d * ux * uy;
+  }
+
+  /**
+   * 空候補か（色だけ）。建物の外壁グレーは後段の「上からの連結」で除外する
+   */
+  function isSkyCandidate(r, g, b, yRatio, range) {
+    if (yRatio > range) return false;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const sat = max === 0 ? 0 : (max - min) / max;
+    const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+
+    if (g > r + 18 && g > b + 12 && sat > 0.12) return false;
+    if (r > b + 18 && g > b + 8 && sat > 0.08 && lum < 0.93) return false;
+    if (r > g + 28 && r > b + 28 && sat > 0.18) return false;
+    if (r > b + 8 && r >= g - 2 && sat < 0.12 && lum < 0.88) return false;
+    if (lum < 0.52) return false;
+
+    const isBlueSky = b >= r - 2 && b >= g - 8 && b > 95 && sat >= 0.06 && sat <= 0.55;
+    const minLum = 0.62 + yRatio * 0.16;
+    const maxSat = 0.16 - yRatio * 0.08;
+    const isOvercast =
+      lum >= minLum &&
+      sat <= Math.max(0.06, maxSat) &&
+      b + 6 >= g &&
+      g + 10 >= r &&
+      b + 4 >= r &&
+      Math.abs(r - g) < 22 &&
+      Math.abs(g - b) < 24;
+    const isPaleSky =
+      lum > 0.8 &&
+      sat < 0.08 &&
+      b + 4 >= r &&
+      Math.abs(r - g) < 16 &&
+      Math.abs(g - b) < 16;
+
+    if (isBlueSky || isOvercast || isPaleSky) return true;
+    return false;
+  }
+
+  /** 置き換え用の新しい空（プリセット＋調整） */
+  function sampleReplacementSky(xRatio, yRatio, opts) {
+    const { preset, range, brightness, temperature, scale, shift } = opts;
+    const span = Math.max(0.05, range * scale);
+    const t = clamp((yRatio - shift) / span, 0, 1);
+    const eased = t * t * (3 - 2 * t);
+    let r = preset.zenith.r * (1 - eased) + preset.horizon.r * eased;
+    let g = preset.zenith.g * (1 - eased) + preset.horizon.g * eased;
+    let b = preset.zenith.b * (1 - eased) + preset.horizon.b * eased;
+
+    if (preset.glow) {
+      const glowT = Math.pow(1 - t, 1.6);
+      const gs = preset.glow.strength * glowT;
+      r = r * (1 - gs) + preset.glow.r * gs;
+      g = g * (1 - gs) + preset.glow.g * gs;
+      b = b * (1 - gs) + preset.glow.b * gs;
+    }
+
+    const warm = preset.warmth + temperature / 120;
+    r += warm * 28;
+    b -= warm * 28;
+    r += temperature * 0.55;
+    b -= temperature * 0.55;
+    r += brightness * 1.8;
+    g += brightness * 1.8;
+    b += brightness * 1.8;
+
+    if (preset.clouds > 0) {
+      const n1 = softNoise(xRatio * 6.5, yRatio * 4.2);
+      const n2 = softNoise(xRatio * 14 + 3.1, yRatio * 9.5 + 1.7);
+      const cloud = Math.pow(Math.max(0, n1 * 0.65 + n2 * 0.35 - 0.42), 1.35);
+      const amount = cloud * preset.clouds * (0.22 + t * 0.2);
+      r = r * (1 - amount) + 248 * amount;
+      g = g * (1 - amount) + 250 * amount;
+      b = b * (1 - amount) + 252 * amount;
+    }
+
+    return {
+      r: clamp(r, 0, 255),
+      g: clamp(g, 0, 255),
+      b: clamp(b, 0, 255),
+    };
+  }
+
+  function skyMaskCacheKey(imageData, range, edgeFade) {
+    const src = imageData.data;
+    const len = src.length;
+    return [
+      imageData.width,
+      imageData.height,
+      Math.round(range * 100),
+      Math.round(edgeFade * 100),
+      src[0],
+      src[1],
+      src[2],
+      src[Math.floor(len / 2)],
+      src[len - 4],
+      src[len - 3],
+      src[len - 2],
+    ].join(":");
+  }
+
+  /**
+   * 画像上端から連結した空だけをマスク化（建物の同系色を除外）
+   * 戻り値: Float32Array 0〜1（境界はぼかし）
+   */
+  function buildConnectedSkyMask(imageData, range, edgeFade) {
+    const key = skyMaskCacheKey(imageData, range, edgeFade);
+    if (skyMaskCache.key === key && skyMaskCache.mask) return skyMaskCache.mask;
+
+    const w = imageData.width;
+    const h = imageData.height;
+    const src = imageData.data;
+    const maxY = Math.min(h - 1, Math.floor(h * range));
+    const candidate = new Uint8Array(w * h);
+
+    for (let y = 0; y <= maxY; y += 1) {
+      const yRatio = y / h;
+      for (let x = 0; x < w; x += 1) {
+        const i = (y * w + x) * 4;
+        if (isSkyCandidate(src[i], src[i + 1], src[i + 2], yRatio, range)) {
+          candidate[y * w + x] = 1;
+        }
+      }
+    }
+
+    const hard = new Uint8Array(w * h);
+    const visited = new Uint8Array(w * h);
+    const queue = new Int32Array(w * h);
+    let qh = 0;
+    let qt = 0;
+
+    const seedRows = Math.max(3, Math.floor(h * 0.05));
+    for (let y = 0; y < seedRows; y += 1) {
+      for (let x = 0; x < w; x += 1) {
+        const idx = y * w + x;
+        if (!candidate[idx] || visited[idx]) continue;
+        visited[idx] = 1;
+        hard[idx] = 1;
+        queue[qt++] = idx;
+      }
+    }
+
+    while (qh < qt) {
+      const idx = queue[qh++];
+      const x = idx % w;
+      const y = (idx - x) / w;
+      const pi = idx * 4;
+      const pr = src[pi];
+      const pg = src[pi + 1];
+      const pb = src[pi + 2];
+      const plum = 0.299 * pr + 0.587 * pg + 0.114 * pb;
+
+      const neigh = [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ];
+      for (let n = 0; n < 4; n += 1) {
+        const nx = x + neigh[n][0];
+        const ny = y + neigh[n][1];
+        if (nx < 0 || ny < 0 || nx >= w || ny > maxY) continue;
+        const nidx = ny * w + nx;
+        if (visited[nidx] || !candidate[nidx]) continue;
+
+        const ni = nidx * 4;
+        const nr = src[ni];
+        const ng = src[ni + 1];
+        const nb = src[ni + 2];
+        const nlum = 0.299 * nr + 0.587 * ng + 0.114 * nb;
+        const colorDist = Math.abs(nr - pr) + Math.abs(ng - pg) + Math.abs(nb - pb);
+        if (Math.abs(nlum - plum) > 18) continue;
+        if (colorDist > 48) continue;
+        if (neigh[n][1] > 0) {
+          if (nlum < plum - 6) continue;
+          if (colorDist > 28) continue;
+          if (nb + 2 < nr) continue;
+        }
+
+        visited[nidx] = 1;
+        hard[nidx] = 1;
+        queue[qt++] = nidx;
+      }
+    }
+
+    const soft = new Float32Array(w * h);
+    const radius = Math.max(1, Math.round(Math.min(w, h) * 0.003 * (1 + edgeFade * 1.8)));
+    for (let y = 0; y <= maxY; y += 1) {
+      for (let x = 0; x < w; x += 1) {
+        let sum = 0;
+        let count = 0;
+        for (let dy = -radius; dy <= radius; dy += 1) {
+          for (let dx = -radius; dx <= radius; dx += 1) {
+            const nx = x + dx;
+            const ny = y + dy;
+            if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+            sum += hard[ny * w + nx];
+            count += 1;
+          }
+        }
+        soft[y * w + x] = count ? sum / count : 0;
+      }
+    }
+
+    skyMaskCache = { key, mask: soft };
+    return soft;
+  }
+
+  function blendSkyPixel(origR, origG, origB, yRatio, xRatio, maskValue, opts) {
+    const { strength, keepClouds } = opts;
+    if (strength <= 0 || maskValue <= 0.02) {
+      return applyForegroundLight(origR, origG, origB, yRatio, maskValue, opts);
+    }
+
+    const m = clamp(maskValue * strength, 0, 1);
+    let sky = sampleReplacementSky(xRatio, yRatio, opts);
+    if (keepClouds) {
+      const maxC = Math.max(origR, origG, origB);
+      const minC = Math.min(origR, origG, origB);
+      const sat = maxC ? (maxC - minC) / maxC : 0;
+      const origLum = (0.299 * origR + 0.587 * origG + 0.114 * origB) / 255;
+      const cloud = clamp((origLum - 0.48) / 0.42, 0, 1) * clamp(1 - sat * 2.2, 0, 1);
+      const white = 248;
+      sky = {
+        r: sky.r * (1 - cloud) + white * cloud,
+        g: sky.g * (1 - cloud) + 250 * cloud,
+        b: sky.b * (1 - cloud) + 252 * cloud,
+      };
+      const skyLum = 0.299 * sky.r + 0.587 * sky.g + 0.114 * sky.b;
+      const lumRatio = clamp((origLum * 255) / Math.max(1, skyLum), 0.75, 1.25);
+      const preserve = cloud * 0.4;
+      sky = {
+        r: clamp(sky.r * (1 - preserve) + sky.r * lumRatio * preserve, 0, 255),
+        g: clamp(sky.g * (1 - preserve) + sky.g * lumRatio * preserve, 0, 255),
+        b: clamp(sky.b * (1 - preserve) + sky.b * lumRatio * preserve, 0, 255),
+      };
+    }
+
+    const blended = {
+      r: origR * (1 - m) + sky.r * m,
+      g: origG * (1 - m) + sky.g * m,
+      b: origB * (1 - m) + sky.b * m,
+    };
+    return applyForegroundLight(blended.r, blended.g, blended.b, yRatio, maskValue, opts);
+  }
+
+  function applyForegroundLight(r, g, b, yRatio, maskValue, opts) {
+    if (opts.foreground <= 0 || maskValue > 0.2) return { r, g, b };
+    const fg =
+      opts.foreground * (1 - maskValue) * clamp((yRatio - 0.2) / 0.75, 0, 1);
+    if (fg <= 0) return { r, g, b };
+    const h = opts.preset.horizon;
+    const mix = fg * 0.32;
+    return {
+      r: clamp(r * (1 - mix) + h.r * mix, 0, 255),
+      g: clamp(g * (1 - mix) + h.g * mix, 0, 255),
+      b: clamp(b * (1 - mix) + h.b * mix, 0, 255),
+    };
+  }
+
+  function getSkyOptionsFromUi() {
+    return buildSkyOptions({
+      presetId: getActiveSkyPresetId(),
+      strength: skyStrength.value,
+      brightness: skyBrightness.value,
+      temperature: skyTemperature.value,
+      scale: skyScale.value,
+      shift: skyShift.value,
+      range: skyRange.value,
+      edgeFade: skyEdgeFade.value,
+      foreground: skyForeground.value,
+      keepClouds: skyKeepClouds.checked,
+    });
+  }
+
+  function getSkyOptionsFromPhoto(photo) {
+    return buildSkyOptions({
+      presetId: resolvePhotoSkyPresetId(photo),
+      strength: photo.skyStrength,
+      brightness: photo.skyBrightness,
+      temperature: photo.skyTemperature,
+      scale: photo.skyScale,
+      shift: photo.skyShift,
+      range: photo.skyRange,
+      edgeFade: photo.skyEdgeFade,
+      foreground: photo.skyForeground,
+      keepClouds: photo.skyKeepClouds,
+    });
+  }
+
+  function processLitPixels(imageData, dst, bright, contrastVal, skyOpts) {
+    const w = imageData.width;
+    const h = imageData.height;
+    const src = imageData.data;
     const cFactor = (259 * (contrastVal + 255)) / (255 * (259 - contrastVal));
+    const skyMask =
+      skyOpts.strength > 0
+        ? buildConnectedSkyMask(imageData, skyOpts.range, skyOpts.edgeFade)
+        : null;
 
     for (let i = 0; i < src.length; i += 4) {
       let r = src[i];
@@ -1470,17 +2235,114 @@ ${addressBlock}
       r = clamp(cFactor * (r - 128) + 128, 0, 255);
       g = clamp(cFactor * (g - 128) + 128, 0, 255);
       b = clamp(cFactor * (b - 128) + 128, 0, 255);
+
+      if (skyMask) {
+        const pix = i / 4;
+        const py = Math.floor(pix / w);
+        const px = pix % w;
+        const out = blendSkyPixel(r, g, b, py / h, px / w, skyMask[pix], skyOpts);
+        r = out.r;
+        g = out.g;
+        b = out.b;
+      } else if (skyOpts.foreground > 0) {
+        const pix = i / 4;
+        const py = Math.floor(pix / w);
+        const out = applyForegroundLight(r, g, b, py / h, 0, skyOpts);
+        r = out.r;
+        g = out.g;
+        b = out.b;
+      }
+
       dst[i] = r;
       dst[i + 1] = g;
       dst[i + 2] = b;
       dst[i + 3] = src[i + 3];
     }
+  }
 
+  function buildLitCanvas() {
+    if (!baseImageData) return null;
+    const w = baseImageData.width;
+    const h = baseImageData.height;
+    const out = ctx.createImageData(w, h);
+    processLitPixels(
+      baseImageData,
+      out.data,
+      Number(brightness.value),
+      Number(contrast.value),
+      getSkyOptionsFromUi(),
+    );
     const temp = document.createElement("canvas");
     temp.width = w;
     temp.height = h;
     temp.getContext("2d").putImageData(out, 0, 0);
+    applyWatermarkToCanvas(temp);
     return temp;
+  }
+    const preset = getSkyPreset(presetId);
+    const ctx2 = canvas.getContext("2d");
+    const w = canvas.width;
+    const h = canvas.height;
+    const img = ctx2.createImageData(w, h);
+    const data = img.data;
+    const opts = buildSkyOptions({
+      presetId,
+      strength: "100",
+      brightness: "0",
+      temperature: "0",
+      scale: "100",
+      shift: "0",
+      range: "100",
+      edgeFade: "50",
+      foreground: "0",
+      keepClouds: true,
+    });
+    for (let y = 0; y < h; y += 1) {
+      for (let x = 0; x < w; x += 1) {
+        const sky = sampleReplacementSky(x / w, y / h, opts);
+        const i = (y * w + x) * 4;
+        data[i] = sky.r;
+        data[i + 1] = sky.g;
+        data[i + 2] = sky.b;
+        data[i + 3] = 255;
+      }
+    }
+    ctx2.putImageData(img, 0, 0);
+  }
+
+  function renderSkyPresetGrid() {
+    if (!skyPresetGrid) return;
+    skyPresetGrid.innerHTML = "";
+    SKY_PRESET_ORDER.forEach((id) => {
+      const preset = getSkyPreset(id);
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "sky-preset-card";
+      btn.dataset.preset = id;
+      btn.setAttribute("role", "option");
+      btn.setAttribute("aria-label", preset.name);
+      btn.title = preset.name;
+
+      const thumb = document.createElement("canvas");
+      thumb.className = "sky-preset-thumb";
+      thumb.width = 80;
+      thumb.height = 48;
+      drawSkyPresetThumb(id, thumb);
+
+      const label = document.createElement("span");
+      label.className = "sky-preset-name";
+      label.textContent = preset.name;
+
+      btn.append(thumb, label);
+      btn.addEventListener("click", () => {
+        setActiveSkyPresetId(id);
+        if (Number(skyStrength.value) < 40) skyStrength.value = "90";
+        onSkyControlChange();
+        setTool("sky");
+      });
+      skyPresetGrid.append(btn);
+    });
+    updateSkyPresetActive();
   }
 
   function drawCropOverlay() {
@@ -1710,6 +2572,7 @@ ${addressBlock}
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(sourceCanvas, 0, 0);
     baseImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    skyMaskCache = { key: "", mask: null };
     aspectRatio = canvas.width / canvas.height;
     resizeWidth.value = String(canvas.width);
     resizeHeight.value = String(canvas.height);
@@ -1817,6 +2680,440 @@ ${addressBlock}
     }
   }
 
+  function mosaicRect(rx, ry, rw, rh, blockOverride) {
+    if (!baseImageData) return;
+    const block = Math.max(4, blockOverride || Number(mosaicSize.value));
+    const w = baseImageData.width;
+    const h = baseImageData.height;
+    const data = baseImageData.data;
+    const x0 = Math.max(0, Math.floor(rx / block) * block);
+    const y0 = Math.max(0, Math.floor(ry / block) * block);
+    const x1 = Math.min(w, Math.ceil((rx + rw) / block) * block);
+    const y1 = Math.min(h, Math.ceil((ry + rh) / block) * block);
+
+    for (let by = y0; by < y1; by += block) {
+      for (let bx = x0; bx < x1; bx += block) {
+        const bx1 = Math.min(w, bx + block);
+        const by1 = Math.min(h, by + block);
+        let r = 0;
+        let g = 0;
+        let b = 0;
+        let n = 0;
+        for (let py = by; py < by1; py += 1) {
+          for (let px = bx; px < bx1; px += 1) {
+            const i = (py * w + px) * 4;
+            r += data[i];
+            g += data[i + 1];
+            b += data[i + 2];
+            n += 1;
+          }
+        }
+        if (!n) continue;
+        r = Math.round(r / n);
+        g = Math.round(g / n);
+        b = Math.round(b / n);
+        for (let py = by; py < by1; py += 1) {
+          for (let px = bx; px < bx1; px += 1) {
+            const i = (py * w + px) * 4;
+            data[i] = r;
+            data[i + 1] = g;
+            data[i + 2] = b;
+          }
+        }
+      }
+    }
+  }
+
+  function expandBox(box, padRatio, imgW, imgH) {
+    const padX = box.w * padRatio;
+    const padY = box.h * padRatio;
+    const x = Math.max(0, box.x - padX);
+    const y = Math.max(0, box.y - padY);
+    const x2 = Math.min(imgW, box.x + box.w + padX);
+    const y2 = Math.min(imgH, box.y + box.h + padY);
+    return { x, y, w: Math.max(1, x2 - x), h: Math.max(1, y2 - y) };
+  }
+
+  let tfModelsPromise = null;
+
+  function loadScript(src) {
+    return new Promise((resolve, reject) => {
+      const existing = document.querySelector(`script[src="${src}"]`);
+      if (existing) {
+        if (existing.dataset.loaded === "1") {
+          resolve();
+          return;
+        }
+        if (existing.dataset.failed === "1") {
+          existing.remove();
+        } else {
+          existing.addEventListener("load", () => resolve(), { once: true });
+          existing.addEventListener(
+            "error",
+            () => reject(new Error(`スクリプト読込失敗: ${src}`)),
+            { once: true },
+          );
+          return;
+        }
+      }
+      const s = document.createElement("script");
+      s.src = src;
+      s.async = true;
+      s.onload = () => {
+        s.dataset.loaded = "1";
+        resolve();
+      };
+      s.onerror = () => {
+        s.dataset.failed = "1";
+        s.remove();
+        reject(new Error(`スクリプト読込失敗: ${src}`));
+      };
+      document.head.appendChild(s);
+    });
+  }
+
+  async function ensureTfModels() {
+    if (tfModelsPromise) return tfModelsPromise;
+    tfModelsPromise = (async () => {
+      await loadScript("https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js");
+      // blazeface@0.1.0 は CDN に dist が無いため 0.0.7 を使用
+      await loadScript(
+        "https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface@0.0.7/dist/blazeface.min.js",
+      );
+      await loadScript(
+        "https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js",
+      );
+      if (!window.blazeface || !window.cocoSsd) {
+        throw new Error("検知モデルの読込に失敗しました");
+      }
+      const [faceModel, objectModel] = await Promise.all([
+        window.blazeface.load({ maxFaces: 20 }),
+        window.cocoSsd.load({ base: "lite_mobilenet_v2" }),
+      ]);
+      return { faceModel, objectModel };
+    })().catch((err) => {
+      tfModelsPromise = null;
+      throw err;
+    });
+    return tfModelsPromise;
+  }
+
+  function photoToDetectCanvas(photo) {
+    const src = canvasFromPhoto(photo);
+    const maxEdge = 960;
+    const scale = Math.min(1, maxEdge / Math.max(src.width, src.height));
+    if (scale >= 0.999) return { canvas: src, scale: 1 };
+    const c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(src.width * scale));
+    c.height = Math.max(1, Math.round(src.height * scale));
+    const ctx2 = c.getContext("2d");
+    ctx2.imageSmoothingEnabled = true;
+    ctx2.imageSmoothingQuality = "high";
+    ctx2.drawImage(src, 0, 0, c.width, c.height);
+    return { canvas: c, scale };
+  }
+
+  async function detectPeopleBoxes(detectCanvas, scale, faceModel, objectModel) {
+    const boxes = [];
+    const inv = 1 / scale;
+
+    try {
+      const faces = await faceModel.estimateFaces(detectCanvas, false);
+      faces.forEach((face) => {
+        const [x1, y1] = face.topLeft;
+        const [x2, y2] = face.bottomRight;
+        boxes.push({
+          type: "face",
+          x: x1 * inv,
+          y: y1 * inv,
+          w: (x2 - x1) * inv,
+          h: (y2 - y1) * inv,
+        });
+      });
+    } catch (err) {
+      console.warn(err);
+    }
+
+    try {
+      const preds = await objectModel.detect(detectCanvas, 20, 0.45);
+      preds.forEach((p) => {
+        if (p.class !== "person") return;
+        const [x, y, w, h] = p.bbox;
+        // 顔検知漏れ向けに上半身（頭部付近）もモザイク
+        boxes.push({
+          type: "person-head",
+          x: x * inv,
+          y: y * inv,
+          w: w * inv,
+          h: h * inv * 0.38,
+        });
+      });
+    } catch (err) {
+      console.warn(err);
+    }
+
+    return boxes;
+  }
+
+  async function detectPlateBoxesLocal(detectCanvas, scale, objectModel) {
+    const boxes = [];
+    const inv = 1 / scale;
+    try {
+      const preds = await objectModel.detect(detectCanvas, 20, 0.4);
+      preds.forEach((p) => {
+        if (p.class !== "car" && p.class !== "truck" && p.class !== "bus") return;
+        const [x, y, w, h] = p.bbox;
+        // 車体下部をナンバー位置として推定
+        boxes.push({
+          type: "plate-est",
+          x: (x + w * 0.15) * inv,
+          y: (y + h * 0.62) * inv,
+          w: w * 0.7 * inv,
+          h: h * 0.22 * inv,
+        });
+      });
+    } catch (err) {
+      console.warn(err);
+    }
+    return boxes;
+  }
+
+  async function detectPlateBoxesGemini(photo) {
+    const apiKey = getGeminiApiKey();
+    if (!apiKey) return [];
+
+    const source = canvasFromPhoto(photo);
+    const base64 = imageToJpegBase64(source, 1024);
+    const prompt = `この不動産写真から「車のナンバープレート」の位置だけを検出してください。
+人物の顔は対象外です。
+必ず次のJSONのみ返すこと:
+{"plates":[{"x":0,"y":0,"w":0,"h":0}]}
+座標は画像左上原点、ピクセル単位。写っていない場合は {"plates":[]} 。
+推測で広く取りすぎない。プレート本体＋余白少しだけ。`;
+
+    const body = {
+      contents: [
+        {
+          parts: [
+            { inline_data: { mime_type: "image/jpeg", data: base64 } },
+            { text: prompt },
+          ],
+        },
+      ],
+      generationConfig: {
+        temperature: 0.1,
+        maxOutputTokens: 512,
+        responseMimeType: "application/json",
+      },
+    };
+
+    let lastError = null;
+    for (const model of GEMINI_MODELS) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          lastError = new Error(data?.error?.message || `HTTP ${res.status}`);
+          if (res.status === 404) continue;
+          if (res.status === 429) throw new Error(explainGeminiError(lastError.message));
+          continue;
+        }
+        const text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
+        const match = text.match(/\{[\s\S]*\}/);
+        if (!match) return [];
+        const parsed = JSON.parse(match[0]);
+        const plates = Array.isArray(parsed.plates) ? parsed.plates : [];
+        return plates
+          .map((p) => ({
+            type: "plate",
+            x: Number(p.x) || 0,
+            y: Number(p.y) || 0,
+            w: Number(p.w) || 0,
+            h: Number(p.h) || 0,
+          }))
+          .filter((p) => p.w > 4 && p.h > 4);
+      } catch (err) {
+        lastError = err;
+        if (/利用上限|APIキー|制限/i.test(String(err?.message || ""))) throw err;
+      }
+    }
+    if (lastError) console.warn(lastError);
+    return [];
+  }
+
+  function applyBoxesToPhoto(photo, boxes) {
+    const wasActive = photo.id === activePhotoId;
+    if (!wasActive) {
+      // 非表示写真: baseImageData を直接編集
+      if (!photo.baseImageData) {
+        const c = photoSourceCanvas(photo);
+        photo.baseImageData = c.getContext("2d").getImageData(0, 0, c.width, c.height);
+      }
+    } else {
+      snapshotCurrent();
+    }
+
+    const targetData = wasActive ? baseImageData : photo.baseImageData;
+    if (!targetData) return 0;
+    const imgW = targetData.width;
+    const imgH = targetData.height;
+    const savedBase = baseImageData;
+    baseImageData = targetData;
+
+    let count = 0;
+    boxes.forEach((box) => {
+      const pad = box.type === "face" ? 0.25 : box.type.startsWith("plate") ? 0.12 : 0.08;
+      const b = expandBox(box, pad, imgW, imgH);
+      const block =
+        box.type === "face" || box.type.startsWith("plate")
+          ? Math.max(8, Math.round(Math.min(b.w, b.h) / 6))
+          : Math.max(10, Number(mosaicSize.value));
+      mosaicRect(b.x, b.y, b.w, b.h, block);
+      count += 1;
+    });
+
+    photo.baseImageData = cloneImageData(targetData);
+    if (wasActive) {
+      baseImageData = targetData;
+      renderEffects();
+      const active = getActivePhoto();
+      if (active) {
+        active.baseImageData = cloneImageData(baseImageData);
+      }
+    } else {
+      baseImageData = savedBase;
+    }
+    return count;
+  }
+
+  async function autoMosaicPhoto(photo, { people, plates }) {
+    const boxes = [];
+    const { canvas: detectCanvas, scale } = photoToDetectCanvas(photo);
+
+    if (people || plates) {
+      const { faceModel, objectModel } = await ensureTfModels();
+      if (people) {
+        boxes.push(...(await detectPeopleBoxes(detectCanvas, scale, faceModel, objectModel)));
+      }
+      if (plates) {
+        let plateBoxes = [];
+        try {
+          plateBoxes = await detectPlateBoxesGemini(photo);
+        } catch (err) {
+          console.warn(err);
+          // 上限などでもローカル推定へフォールバック
+        }
+        if (!plateBoxes.length) {
+          plateBoxes = await detectPlateBoxesLocal(detectCanvas, scale, objectModel);
+        }
+        boxes.push(...plateBoxes);
+      }
+    }
+
+    const applied = applyBoxesToPhoto(photo, boxes);
+    return { applied, boxes };
+  }
+
+  function setAutoMosaicStatus(message, isError = false) {
+    if (!autoMosaicStatus) return;
+    autoMosaicStatus.textContent = message;
+    autoMosaicStatus.style.color = isError ? "var(--danger-soft)" : "var(--muted)";
+  }
+
+  async function runAutoMosaicActive() {
+    const photo = getActivePhoto();
+    if (!photo) return;
+    const people = autoDetectPeople.checked;
+    const plates = autoDetectPlates.checked;
+    if (!people && !plates) {
+      setAutoMosaicStatus("人物かナンバーの少なくとも一方を選んでください", true);
+      return;
+    }
+
+    const prev = autoMosaicBtn.textContent;
+    autoMosaicBtn.disabled = true;
+    autoMosaicAllBtn.disabled = true;
+    autoMosaicBtn.textContent = "検知中…";
+    setAutoMosaicStatus("モデル読込・検知中…（初回は少し時間がかかります）");
+
+    try {
+      const { applied, boxes } = await autoMosaicPhoto(photo, { people, plates });
+      renderGallery();
+      const faces = boxes.filter((b) => b.type === "face" || b.type === "person-head").length;
+      const plateN = boxes.filter((b) => b.type.startsWith("plate")).length;
+      const msg =
+        applied > 0
+          ? `モザイクしました（人物系 ${faces} / ナンバー ${plateN}）`
+          : "対象が見つかりませんでした。手動ブラシでも隠せます";
+      setAutoMosaicStatus(msg, applied === 0);
+      showToast(msg);
+    } catch (err) {
+      console.warn(err);
+      const msg = explainGeminiError(err);
+      setAutoMosaicStatus(msg, true);
+      notifyError(msg);
+    } finally {
+      autoMosaicBtn.disabled = false;
+      autoMosaicAllBtn.disabled = false;
+      autoMosaicBtn.textContent = prev;
+    }
+  }
+
+  async function runAutoMosaicAll() {
+    if (!photos.length) return;
+    const people = autoDetectPeople.checked;
+    const plates = autoDetectPlates.checked;
+    if (!people && !plates) {
+      setAutoMosaicStatus("人物かナンバーの少なくとも一方を選んでください", true);
+      return;
+    }
+
+    persistCaptionFromUi();
+    snapshotCurrent();
+    const prev = autoMosaicAllBtn.textContent;
+    autoMosaicBtn.disabled = true;
+    autoMosaicAllBtn.disabled = true;
+
+    let ok = 0;
+    let totalBoxes = 0;
+
+    try {
+      // モデルを先に読み込み
+      if (people || plates) await ensureTfModels();
+
+      for (let i = 0; i < photos.length; i += 1) {
+        const photo = photos[i];
+        autoMosaicAllBtn.textContent = `${i + 1}/${photos.length}`;
+        setAutoMosaicStatus(`自動モザイク中… ${i + 1}/${photos.length}`);
+        try {
+          const { applied } = await autoMosaicPhoto(photo, { people, plates });
+          if (applied > 0) ok += 1;
+          totalBoxes += applied;
+        } catch (err) {
+          console.warn(err);
+        }
+        if (plates && getGeminiApiKey() && i < photos.length - 1) await sleep(1200);
+      }
+
+      const active = getActivePhoto();
+      if (active) restorePhoto(active);
+      else renderGallery();
+
+      const msg = `${ok}枚にモザイク（計 ${totalBoxes} 箇所）`;
+      setAutoMosaicStatus(msg);
+      showToast(msg);
+    } finally {
+      autoMosaicBtn.disabled = false;
+      autoMosaicAllBtn.disabled = false;
+      autoMosaicAllBtn.textContent = prev;
+    }
+  }
+
   function strokeMosaic(from, to) {
     const dist = Math.hypot(to.x - from.x, to.y - from.y);
     const step = Math.max(4, Number(brushSize.value) * 0.4);
@@ -1831,6 +3128,39 @@ ${addressBlock}
   function updateLightLabels() {
     brightnessLabel.textContent = brightness.value;
     contrastLabel.textContent = contrast.value;
+  }
+
+  function updateSkyLabels() {
+    skyStrengthLabel.textContent = skyStrength.value;
+    skyBrightnessLabel.textContent = skyBrightness.value;
+    skyTemperatureLabel.textContent = skyTemperature.value;
+    skyScaleLabel.textContent = skyScale.value;
+    skyShiftLabel.textContent = skyShift.value;
+    skyRangeLabel.textContent = skyRange.value;
+    skyEdgeFadeLabel.textContent = skyEdgeFade.value;
+    skyForegroundLabel.textContent = skyForeground.value;
+  }
+
+  function updateSkyPresetActive() {
+    if (!skyPresetGrid) return;
+    skyPresetGrid.querySelectorAll(".sky-preset-card").forEach((btn) => {
+      btn.classList.toggle("is-active", btn.dataset.preset === getActiveSkyPresetId());
+    });
+  }
+
+  function persistSkyToActivePhoto() {
+    const photo = getActivePhoto();
+    if (!photo) return;
+    photo.skyPreset = getActiveSkyPresetId();
+    photo.skyStrength = skyStrength.value;
+    photo.skyBrightness = skyBrightness.value;
+    photo.skyTemperature = skyTemperature.value;
+    photo.skyScale = skyScale.value;
+    photo.skyShift = skyShift.value;
+    photo.skyRange = skyRange.value;
+    photo.skyEdgeFade = skyEdgeFade.value;
+    photo.skyForeground = skyForeground.value;
+    photo.skyKeepClouds = skyKeepClouds.checked;
   }
 
   function updateRotateLabel() {
@@ -1876,6 +3206,7 @@ ${addressBlock}
   });
 
   fileInput.addEventListener("change", () => {
+    if (importBusy) return;
     const files = fileInput.files;
     if (files?.length) {
       addFiles(files);
@@ -1898,6 +3229,8 @@ ${addressBlock}
   });
 
   dropzone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    if (importBusy) return;
     const files = e.dataTransfer?.files;
     if (files?.length) addFiles(files);
   });
@@ -1911,6 +3244,7 @@ ${addressBlock}
   });
   stage.addEventListener("drop", (e) => {
     e.preventDefault();
+    if (importBusy) return;
     const files = e.dataTransfer?.files;
     if (files?.length) addFiles(files);
   });
@@ -2003,6 +3337,8 @@ ${addressBlock}
     showToast("キャプション一覧を保存しました");
   });
 
+  setImportLoading(false);
+
   geminiApiKey.value = localStorage.getItem(GEMINI_KEY_STORAGE) || "";
   geminiApiKey.addEventListener("change", () => {
     saveGeminiApiKey();
@@ -2020,6 +3356,19 @@ ${addressBlock}
   propertyAddress.value = localStorage.getItem(PROPERTY_ADDRESS_STORAGE) || "";
   propertyAddress.addEventListener("change", savePropertyAddress);
   propertyAddress.addEventListener("blur", savePropertyAddress);
+
+  restoreWatermarkPreference();
+  loadWatermarkImage()
+    .then(() => {
+      if (baseImageData) renderEffects();
+    })
+    .catch(() => {});
+  if (watermarkEnabled) {
+    watermarkEnabled.addEventListener("change", () => {
+      saveWatermarkPreference();
+      if (baseImageData) renderEffects();
+    });
+  }
 
   const savedType = localStorage.getItem(PROPERTY_TYPE_STORAGE);
   if (savedType && PROPERTY_TYPES[savedType]) propertyType.value = savedType;
@@ -2343,6 +3692,14 @@ ${addressBlock}
     mosaicSizeLabel.textContent = mosaicSize.value;
   });
 
+  autoMosaicBtn.addEventListener("click", () => {
+    runAutoMosaicActive();
+  });
+
+  autoMosaicAllBtn.addEventListener("click", () => {
+    runAutoMosaicAll();
+  });
+
   [brightness, contrast].forEach((el) => {
     el.addEventListener("input", () => {
       updateLightLabels();
@@ -2365,6 +3722,90 @@ ${addressBlock}
       photo.contrast = "0";
     }
   });
+
+  function onSkyControlChange() {
+    updateSkyLabels();
+    updateSkyPresetActive();
+    persistSkyToActivePhoto();
+    renderEffects();
+  }
+
+  [
+    skyStrength,
+    skyBrightness,
+    skyTemperature,
+    skyScale,
+    skyShift,
+    skyRange,
+    skyEdgeFade,
+    skyForeground,
+  ].forEach((el) => {
+    el.addEventListener("input", onSkyControlChange);
+  });
+  skyKeepClouds.addEventListener("change", onSkyControlChange);
+
+  skyAutoBtn.addEventListener("click", () => {
+    if (!baseImageData) return;
+    setActiveSkyPresetId("clear-blue");
+    skyStrength.value = "90";
+    skyBrightness.value = "4";
+    skyTemperature.value = "0";
+    skyScale.value = "100";
+    skyShift.value = "0";
+    skyRange.value = "62";
+    skyEdgeFade.value = "55";
+    skyForeground.value = "18";
+    skyKeepClouds.checked = true;
+    onSkyControlChange();
+    showToast("空を自動置き換えしました");
+    setTool("sky");
+  });
+
+  resetSky.addEventListener("click", () => {
+    setActiveSkyPresetId(DEFAULT_SKY_PRESET);
+    skyStrength.value = "0";
+    skyBrightness.value = "0";
+    skyTemperature.value = "0";
+    skyScale.value = "100";
+    skyShift.value = "0";
+    skyRange.value = "55";
+    skyEdgeFade.value = "50";
+    skyForeground.value = "0";
+    skyKeepClouds.checked = true;
+    onSkyControlChange();
+    showToast("空の編集をリセットしました");
+  });
+
+  skyApplyAllBtn.addEventListener("click", () => {
+    if (!photos.length) return;
+    persistSkyToActivePhoto();
+    const preset = getActiveSkyPresetId();
+    const strength = skyStrength.value;
+    const brightness = skyBrightness.value;
+    const temperature = skyTemperature.value;
+    const scale = skyScale.value;
+    const shift = skyShift.value;
+    const range = skyRange.value;
+    const edgeFade = skyEdgeFade.value;
+    const foreground = skyForeground.value;
+    const keep = skyKeepClouds.checked;
+    photos.forEach((photo) => {
+      photo.skyPreset = preset;
+      photo.skyStrength = strength;
+      photo.skyBrightness = brightness;
+      photo.skyTemperature = temperature;
+      photo.skyScale = scale;
+      photo.skyShift = shift;
+      photo.skyRange = range;
+      photo.skyEdgeFade = edgeFade;
+      photo.skyForeground = foreground;
+      photo.skyKeepClouds = keep;
+    });
+    showToast(`全${photos.length}枚に空の設定をコピーしました`);
+  });
+
+  renderSkyPresetGrid();
+  updateSkyLabels();
 
   cropAspect.addEventListener("change", () => {
     if (!cropRect) initCropRect();
@@ -2715,19 +4156,47 @@ ${addressBlock}
     applyView();
   });
 
+  if (reloadAppBtn) {
+    reloadAppBtn.addEventListener("click", () => {
+      window.location.reload();
+    });
+  }
+
   resetBtn.addEventListener("click", () => {
     if (!sourceImage) return;
     brightness.value = "0";
     contrast.value = "0";
+    skyStrength.value = "0";
+    skyBrightness.value = "0";
+    skyTemperature.value = "0";
+    skyScale.value = "100";
+    skyShift.value = "0";
+    skyRange.value = "55";
+    skyEdgeFade.value = "50";
+    skyForeground.value = "0";
+    skyKeepClouds.checked = true;
+    setActiveSkyPresetId(DEFAULT_SKY_PRESET);
     previewAngle = 0;
     rotateAngle.value = "0";
     updateLightLabels();
+    updateSkyLabels();
+    updateSkyPresetActive();
     updateRotateLabel();
     setCanvasFromImage(sourceImage, sourceImage.naturalWidth, sourceImage.naturalHeight);
     const photo = getActivePhoto();
     if (photo) {
       photo.brightness = "0";
       photo.contrast = "0";
+      photo.skyPreset = DEFAULT_SKY_PRESET;
+      photo.skyStrength = "0";
+      photo.skyBrightness = "0";
+      photo.skyTemperature = "0";
+      photo.skyScale = "100";
+      photo.skyShift = "0";
+      photo.skyRange = "55";
+      photo.skyEdgeFade = "50";
+      photo.skyForeground = "0";
+      photo.skyKeepClouds = true;
     }
   });
 
@@ -2888,39 +4357,24 @@ ${addressBlock}
     return `${base || "lumen-edit"}${suffix}-${Date.now()}.jpg`;
   }
 
-  function exportPhotoCanvas(photo) {
+  function exportPhotoCanvas(photo, { watermark = true } = {}) {
     const data = photo.id === activePhotoId && baseImageData ? baseImageData : photo.baseImageData;
     if (!data) return null;
 
     const bright = Number(photo.id === activePhotoId ? brightness.value : photo.brightness);
     const contrastVal = Number(photo.id === activePhotoId ? contrast.value : photo.contrast);
-    const cFactor = (259 * (contrastVal + 255)) / (255 * (259 - contrastVal));
+    const skyOpts =
+      photo.id === activePhotoId ? getSkyOptionsFromUi() : getSkyOptionsFromPhoto(photo);
     const w = data.width;
     const h = data.height;
     const out = new ImageData(w, h);
-    const src = data.data;
-    const dst = out.data;
-
-    for (let i = 0; i < src.length; i += 4) {
-      let r = src[i];
-      let g = src[i + 1];
-      let b = src[i + 2];
-      r = clamp(r + bright, 0, 255);
-      g = clamp(g + bright, 0, 255);
-      b = clamp(b + bright, 0, 255);
-      r = clamp(cFactor * (r - 128) + 128, 0, 255);
-      g = clamp(cFactor * (g - 128) + 128, 0, 255);
-      b = clamp(cFactor * (b - 128) + 128, 0, 255);
-      dst[i] = r;
-      dst[i + 1] = g;
-      dst[i + 2] = b;
-      dst[i + 3] = src[i + 3];
-    }
+    processLitPixels(data, out.data, bright, contrastVal, skyOpts);
 
     const temp = document.createElement("canvas");
     temp.width = w;
     temp.height = h;
     temp.getContext("2d").putImageData(out, 0, 0);
+    if (watermark) applyWatermarkToCanvas(temp);
     return temp;
   }
 

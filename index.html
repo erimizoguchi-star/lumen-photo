@@ -3,6 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
     <title>Lumen — Photo Editor</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -10,7 +12,7 @@
       href="https://fonts.googleapis.com/css2?family=Syne:wght@500;700;800&family=IBM+Plex+Sans+JP:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles.css?v=2" />
   </head>
   <body>
     <div class="app">
@@ -20,6 +22,7 @@
           <span class="brand-name">Lumen</span>
         </div>
         <div class="topbar-actions">
+          <button type="button" class="btn ghost" id="reloadAppBtn" title="アプリを再読み込み">再読み込み</button>
           <button type="button" class="btn ghost" id="resetBtn" disabled>リセット</button>
           <button type="button" class="btn ghost" id="downloadAllBtn" disabled hidden title="すべての写真をダウンロード">すべてDL</button>
           <button type="button" class="btn ghost" id="downloadBtn" disabled title="ブラウザのダウンロードへ保存">ダウンロード</button>
@@ -34,9 +37,9 @@
             <h2>写真</h2>
             <label class="upload-btn" for="fileInput">
               <span>写真を追加</span>
-              <input id="fileInput" type="file" accept="image/*" multiple hidden />
+              <input id="fileInput" type="file" accept="image/*,.heic,.heif" multiple hidden />
             </label>
-            <p class="hint" id="fileHint">複数選択可 · JPEG / PNG / WEBP</p>
+            <p class="hint" id="fileHint">複数選択可 · JPEG / PNG / WEBP（HEICはSafari推奨）</p>
 
             <div class="gallery" id="gallery" hidden>
               <div class="gallery-head">
@@ -78,7 +81,7 @@
                 <span>カテゴリ（生成前に選択）</span>
                 <select id="captionCategory"></select>
               </label>
-              <p class="hint">先にカテゴリを選ぶと、写真の見方を絞れてコメントが的確になります</p>
+              <p class="hint">先にカテゴリを選ぶと、写真の見方を絞れてコメントが的確になります。AIは写真をよく観察してから生成します。</p>
 
               <div class="ai-box">
                 <p class="pane-desc">AIで写真から生成</p>
@@ -125,6 +128,12 @@
             </div>
 
             <div class="save-folder" id="saveFolderBlock">
+              <p class="pane-desc">出力設定</p>
+              <label class="check">
+                <input type="checkbox" id="watermarkEnabled" checked />
+                <span>会社ロゴを透かしで入れる（左上）</span>
+              </label>
+              <p class="hint">プレビュー・保存・ダウンロード時に KYOUEI ロゴを重ねます</p>
               <p class="pane-desc">保存先フォルダ</p>
               <p class="hint" id="folderHint">未設定（初回に選択）</p>
               <button type="button" class="btn secondary full" id="pickFolderBtn">
@@ -141,6 +150,7 @@
               <button type="button" class="tool-tab" data-tool="rotate">角度</button>
               <button type="button" class="tool-tab" data-tool="hide">隠す</button>
               <button type="button" class="tool-tab" data-tool="brightness">明るさ</button>
+              <button type="button" class="tool-tab" data-tool="sky">空の編集</button>
             </div>
 
             <div class="tool-pane active" data-pane="resize">
@@ -224,6 +234,23 @@
                 <input type="range" id="mosaicSize" min="12" max="64" value="28" />
               </label>
               <p class="hint">ドラッグで隠す・二本指で移動・ピンチで拡大</p>
+
+              <div class="batch-box auto-mosaic-box">
+                <p class="pane-desc">自動モザイク</p>
+                <label class="check">
+                  <input type="checkbox" id="autoDetectPeople" checked />
+                  <span>人物（顔）</span>
+                </label>
+                <label class="check">
+                  <input type="checkbox" id="autoDetectPlates" checked />
+                  <span>車のナンバー</span>
+                </label>
+                <button type="button" class="btn primary full" id="autoMosaicBtn">検知してモザイク</button>
+                <button type="button" class="btn secondary full" id="autoMosaicAllBtn">全写真に自動モザイク</button>
+                <p class="hint" id="autoMosaicStatus">
+                  人物は端末内で検知。ナンバーは Gemini APIキーがあると精度が上がります（キーなしでも車の下部を推定）。
+                </p>
+              </div>
             </div>
 
             <div class="tool-pane" data-pane="brightness">
@@ -237,6 +264,64 @@
               </label>
               <button type="button" class="btn secondary full" id="resetLight">明るさを戻す</button>
             </div>
+
+            <div class="tool-pane" data-pane="sky">
+              <p class="pane-desc">空を自動検出して置き換えます。フォトショップの「空の編集」に近い操作感です。</p>
+
+              <div class="sky-section">
+                <span class="sky-section-title">空の選択</span>
+                <div class="sky-preset-grid" id="skyPresetGrid" role="listbox" aria-label="空のプリセット"></div>
+              </div>
+
+              <div class="sky-section">
+                <span class="sky-section-title">空の調整</span>
+                <label class="field">
+                  <span>不透明度 <em id="skyStrengthLabel">0</em>%</span>
+                  <input type="range" id="skyStrength" min="0" max="100" value="0" />
+                </label>
+                <label class="field">
+                  <span>明るさ <em id="skyBrightnessLabel">0</em></span>
+                  <input type="range" id="skyBrightness" min="-50" max="50" value="0" />
+                </label>
+                <label class="field">
+                  <span>色温度 <em id="skyTemperatureLabel">0</em></span>
+                  <input type="range" id="skyTemperature" min="-50" max="50" value="0" />
+                </label>
+                <label class="field">
+                  <span>スケール <em id="skyScaleLabel">100</em>%</span>
+                  <input type="range" id="skyScale" min="70" max="140" value="100" />
+                </label>
+                <label class="field">
+                  <span>位置 <em id="skyShiftLabel">0</em></span>
+                  <input type="range" id="skyShift" min="-40" max="40" value="0" />
+                </label>
+              </div>
+
+              <div class="sky-section">
+                <span class="sky-section-title">境界・前景</span>
+                <label class="field">
+                  <span>検出範囲 <em id="skyRangeLabel">55</em>%</span>
+                  <input type="range" id="skyRange" min="20" max="90" value="55" />
+                </label>
+                <label class="field">
+                  <span>境界のなじませ <em id="skyEdgeFadeLabel">50</em>%</span>
+                  <input type="range" id="skyEdgeFade" min="0" max="100" value="50" />
+                </label>
+                <label class="field">
+                  <span>前景の光 <em id="skyForegroundLabel">0</em>%</span>
+                  <input type="range" id="skyForeground" min="0" max="100" value="0" />
+                </label>
+                <label class="check">
+                  <input type="checkbox" id="skyKeepClouds" checked />
+                  <span>元の雲・明るさを活かす</span>
+                </label>
+              </div>
+
+              <button type="button" class="btn secondary full" id="skyAutoBtn">空を自動置き換え</button>
+              <button type="button" class="btn ghost full" id="resetSky">空の編集をリセット</button>
+              <button type="button" class="btn secondary full" id="skyApplyAllBtn">全写真に同じ設定</button>
+              <p class="hint">画像上部からつながる空だけを対象にします。前景の光で建物に空の色味を反映できます。</p>
+            </div>
           </section>
         </aside>
 
@@ -246,6 +331,16 @@
               <p class="dropzone-brand">Lumen</p>
               <h1>写真をここにドロップ</h1>
               <p>複数枚まとめて追加できます</p>
+            </div>
+          </div>
+          <div class="loading-overlay" id="loadingOverlay" hidden aria-live="polite" aria-busy="false">
+            <div class="loading-card">
+              <div class="loading-spinner" aria-hidden="true"></div>
+              <p class="loading-title" id="loadingTitle">写真を読み込んでいます</p>
+              <p class="loading-detail" id="loadingDetail"></p>
+              <div class="loading-progress" id="loadingProgress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                <div class="loading-progress-bar" id="loadingProgressBar"></div>
+              </div>
             </div>
           </div>
           <div class="canvas-wrap" id="canvasWrap" hidden>
@@ -265,6 +360,6 @@
 
     <div class="toast" id="toast" hidden role="status" aria-live="polite"></div>
 
-    <script src="app.js"></script>
+    <script src="app.js?v=2"></script>
   </body>
 </html>
