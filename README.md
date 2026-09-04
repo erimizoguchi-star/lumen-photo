@@ -54,6 +54,26 @@ macOS では `開く.command` をダブルクリックでも起動できます�
 
 Node.js は不要です。
 
+## 社内公開（サーバー PC + Cloudflare）
+
+社員はブラウザで https://lumen.n-kyouei-system.com を開きます（Cloudflare Access・社員メール）。
+
+サーバー PC:
+
+```bat
+cd C:\Users\power-pc\Desktop\lumen-photo
+git pull origin main
+start_lumen.bat
+```
+
+- ポート: **8510**（`http://localhost:8510`）
+- Tunnel: `kenchiku-system` → `lumen.n-kyouei-system.com` → `http://localhost:8510`
+- スタートアップ: `start_lumen.bat` のショートカットを `shell:startup` へ
+
+更新は Mac で push → サーバー PC で pull → `start_lumen.bat` を再実行。
+
+フォルダ保存は HTTPS が必要なため、社員は社内 LAN の `http://192.168.0.39:8510` ではなく **https://lumen.n-kyouei-system.com** を使ってください。
+
 ## ライセンス
 
 Private / 社内利用想定。
