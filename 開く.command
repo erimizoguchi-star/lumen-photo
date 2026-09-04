@@ -1,7 +1,7 @@
 #!/bin/bash
 cd "$(dirname "$0")"
 PORT=5173
-URL="http://127.0.0.1:$PORT/?v=24"
+URL="http://127.0.0.1:$PORT/?v=25"
 
 # Kill previous instance on this port if any
 lsof -ti tcp:$PORT | xargs kill -9 2>/dev/null
