@@ -12,7 +12,7 @@
       href="https://fonts.googleapis.com/css2?family=Syne:wght@500;700;800&family=IBM+Plex+Sans+JP:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=5" />
+    <link rel="stylesheet" href="styles.css?v=6" />
   </head>
   <body>
     <div class="app">
@@ -144,6 +144,7 @@
                       で無料キーを取得できます。写真は生成のため Google に送信されます。
                     </p>
                   </details>
+                  <p class="hint">写真から受ける印象で生成します（定型文に寄せず、文字数上限近くまで使います）</p>
                   <div class="btn-row caption-actions">
                     <button type="button" class="btn primary" id="generateCaptionBtn">この写真から生成</button>
                     <button type="button" class="btn secondary" id="generateAllCaptionsBtn">全写真を生成</button>
@@ -154,16 +155,25 @@
                 <label class="field">
                   <span>定型文を挿入（任意）</span>
                   <select id="captionTemplate">
-                    <option value="">HOUSEDO風の定型文から選ぶ</option>
+                    <option value="">カテゴリ別の定型文から選ぶ</option>
                   </select>
+                  <p class="hint">文字数は《杏栄》の有無と同じルールで切り詰めて挿入します。AI失敗時の代替にも使います</p>
                 </label>
                 <label class="field">
-                  <span>キャプション（《杏栄》込み） <em id="captionCountLabel">4</em>/20</span>
-                  <div class="caption-input-wrap">
-                    <span class="caption-prefix" aria-hidden="true">《杏栄》</span>
-                    <textarea id="captionInput" rows="2" maxlength="16" placeholder="例）対面キッチン"></textarea>
+                  <span>《杏栄》プレフィックス</span>
+                  <div class="caption-prefix-mode" id="captionPrefixPicker" role="group" aria-label="《杏栄》プレフィックス">
+                    <button type="button" class="caption-prefix-mode-btn is-active" data-prefix="on" aria-pressed="true">入れる</button>
+                    <button type="button" class="caption-prefix-mode-btn" data-prefix="off" aria-pressed="false">入れない</button>
                   </div>
-                  <p class="hint">《杏栄》を含めて合計20文字以内です</p>
+                  <p class="hint">入れない場合は《杏栄》を文字数に数えず、本文だけで36文字まで使えます</p>
+                </label>
+                <label class="field">
+                  <span>キャプション<span id="captionPrefixLabelNote">（《杏栄》込み）</span> <em id="captionCountLabel">4</em>/<span id="captionMaxLabel">36</span></span>
+                  <div class="caption-input-wrap" id="captionInputWrap">
+                    <span class="caption-prefix" id="captionPrefixBadge" aria-hidden="true">《杏栄》</span>
+                    <textarea id="captionInput" rows="2" maxlength="32" placeholder="例）対面キッチン"></textarea>
+                  </div>
+                  <p class="hint" id="captionLimitHint">《杏栄》を含めて合計36文字以内です</p>
                 </label>
                 <div class="btn-row caption-actions">
                   <button type="button" class="btn secondary" id="copyCaptionBtn">この文をコピー</button>
@@ -442,6 +452,6 @@
 
     <div class="toast" id="toast" hidden role="status" aria-live="polite"></div>
 
-    <script src="app.js?v=20"></script>
+    <script src="app.js?v=24"></script>
   </body>
 </html>

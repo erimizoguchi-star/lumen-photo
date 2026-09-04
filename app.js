@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const APP_VERSION = "20";
+  const APP_VERSION = "24";
 
   const fileInput = document.getElementById("fileInput");
   const fileHint = document.getElementById("fileHint");
@@ -39,6 +39,12 @@
   const captionCategory = document.getElementById("captionCategory");
   const captionTemplate = document.getElementById("captionTemplate");
   const captionInput = document.getElementById("captionInput");
+  const captionPrefixPicker = document.getElementById("captionPrefixPicker");
+  const captionPrefixBadge = document.getElementById("captionPrefixBadge");
+  const captionInputWrap = document.getElementById("captionInputWrap");
+  const captionLimitHint = document.getElementById("captionLimitHint");
+  const captionMaxLabel = document.getElementById("captionMaxLabel");
+  const captionPrefixLabelNote = document.getElementById("captionPrefixLabelNote");
   const copyCaptionBtn = document.getElementById("copyCaptionBtn");
   const clearCaptionBtn = document.getElementById("clearCaptionBtn");
   const copyAllCaptionsBtn = document.getElementById("copyAllCaptionsBtn");
@@ -252,10 +258,12 @@
   const MAX_IMAGE_EDGE = 8192;
   const IMAGE_FILE_RE = /\.(jpe?g|png|gif|webp|heic|heif|avif|bmp|tiff?)$/i;
 
-  /** 不動産登録向けキャプション。《杏栄》込みで合計20文字以内 */
-  const CAPTION_MAX_LEN = 20;
+  /** 不動産登録向けキャプション。最終出力は36文字以内。《杏栄》あり時はプレフィックス込み */
+  const CAPTION_MAX_LEN = 36;
   const CAPTION_PREFIX = "《杏栄》";
-  const CAPTION_BODY_MAX = CAPTION_MAX_LEN - Array.from(CAPTION_PREFIX).length;
+  const CAPTION_PREFIX_LEN = Array.from(CAPTION_PREFIX).length;
+  const CAPTION_PREFIX_STORAGE = "lumen-caption-prefix-enabled";
+  let captionPrefixEnabled = true;
   const PROPERTY_TYPE_STORAGE = "lumen-property-type";
   const EXPORT_PRESET_STORAGE = "lumen-export-preset";
   const IRI_GUIDELINE_URL =
@@ -399,26 +407,115 @@
         "その他",
       ],
       templates: {
-        外観: ["タイル張りの外観", "清潔感あるマンション"],
-        間取り: ["使いやすい間取り", "家事動線の良い間取"],
-        リビング: ["明るいリビング", "広々リビング", "日当たり良好LDK"],
-        "居間・リビング": ["南向きリビング", "明るい居間"],
-        ダイニング: ["明るいダイニング", "リビング続きのDK"],
-        キッチン: ["対面キッチン", "システムキッチン", "食洗機付きキッチン"],
-        洋室: ["収納付き洋室", "クローゼット付"],
-        和室: ["落ち着いた和室", "続き間の和室"],
-        寝室: ["落ち着いた寝室", "収納付き寝室"],
-        子供部屋: ["明るい子ども部屋", "成長に合う部屋"],
-        玄関: ["明るい玄関", "収納付き玄関"],
-        廊下: ["明るい廊下", "動線の良い廊下"],
-        収納: ["豊富な収納", "ウォークイン収納"],
-        浴室: ["追い焚き付き浴室", "清潔感ある浴室"],
-        洗面: ["三面鏡洗面台", "収納付き洗面"],
-        トイレ: ["清潔感あるトイレ", "温水洗浄便座"],
-        バルコニー: ["広々バルコニー", "南向きバルコニー"],
-        共用部: ["きれいな共用部", "清潔なエントランス"],
-        周辺環境: ["生活便利な立地", "商業施設が近い"],
-        その他: ["おすすめポイント", "詳細はお問合せを"],
+        外観: [
+          "タイル張りの清潔感ある外観で落ち着いた印象",
+          "明るく整ったマンション外観が印象的",
+          "エントランスまわりもきれいな外観",
+          "植栽のあるやわらかい雰囲気の外観",
+          "シンプルで見栄えの良いマンション外観",
+        ],
+        間取り: [
+          "家事動線を意識した使いやすい間取り",
+          "各部屋の配置が分かりやすい間取図",
+          "生活しやすいバランスの良い間取り",
+          "収納も確保された実用的な間取り",
+        ],
+        リビング: [
+          "採光のよい明るいリビングで開放感あり",
+          "広がりを感じる清潔感あるリビング空間",
+          "窓からの光が心地よいリビングダイニング",
+          "落ち着いたトーンで過ごしやすいリビング",
+          "家具を置きやすいゆとりあるリビング",
+        ],
+        "居間・リビング": [
+          "日当たりのよい明るい居間でくつろげる",
+          "やわらかい光が入る落ち着いた居間",
+          "家族が集まりやすい広がりのある居間",
+        ],
+        ダイニング: [
+          "明るく食事が楽しめるダイニング空間",
+          "キッチンとつながる使いやすいダイニング",
+          "採光のよい清潔感あるダイニング",
+        ],
+        キッチン: [
+          "作業しやすく清潔感のあるキッチン空間",
+          "明るい対面キッチンで会話もはずむ",
+          "収納たっぷりの使いやすいキッチン",
+          "シンプルで整った印象のキッチン",
+        ],
+        洋室: [
+          "採光のよい明るい洋室で使いやすい",
+          "収納付きで生活しやすい洋室",
+          "落ち着いた雰囲気のきれいな洋室",
+        ],
+        和室: [
+          "落ち着きのある和室で寛げる空間",
+          "やわらかい印象のきれいな和室",
+          "続き間としても使える和の空間",
+        ],
+        寝室: [
+          "休息にふさわしい落ち着いた寝室",
+          "収納付きで使いやすい寝室空間",
+          "穏やかなトーンのきれいな寝室",
+        ],
+        子供部屋: [
+          "明るく成長に合わせやすい子ども部屋",
+          "採光のよい使いやすい子ども部屋",
+          "収納もある過ごしやすい子ども部屋",
+        ],
+        玄関: [
+          "明るく迎えやすい清潔感ある玄関",
+          "収納付きで使いやすい玄関スペース",
+          "すっきり整った印象の玄関まわり",
+        ],
+        廊下: [
+          "明るく動線の良い廊下が印象的",
+          "すっきり通れる清潔感ある廊下",
+          "床もきれいで歩きやすい廊下空間",
+        ],
+        収納: [
+          "しまえる場所が多く生活しやすい収納",
+          "奥行きのある使いやすい収納スペース",
+          "整理整頓しやすい収納力が魅力",
+        ],
+        浴室: [
+          "清潔感のある浴室で毎日の入浴が快適",
+          "明るく掃除しやすい印象の浴室",
+          "落ち着いて使えるきれいな浴室空間",
+        ],
+        洗面: [
+          "使いやすく清潔感ある洗面スペース",
+          "収納付きで朝の準備がしやすい洗面",
+          "明るくすっきりした洗面化粧台まわり",
+        ],
+        トイレ: [
+          "手洗いカウンター付きで清潔感あるトイレ",
+          "明るくすっきりした印象のトイレスペース",
+          "温水洗浄便座付きのきれいなトイレ",
+          "毎日使いやすい整ったトイレ空間",
+          "コンパクトでも清潔感のあるトイレ",
+          "手洗い付きで来客時も安心のトイレ",
+        ],
+        バルコニー: [
+          "明るく開放感のあるバルコニー空間",
+          "洗濯物も干しやすい広々バルコニー",
+          "外の空気を感じられるバルコニー",
+        ],
+        共用部: [
+          "きれいに保たれた共用部で好印象",
+          "清潔感のあるエントランスまわり",
+          "管理の行き届いた共用スペース",
+        ],
+        周辺環境: [
+          "生活利便を感じる落ち着いた立地感",
+          "街並みの雰囲気がよい周辺環境",
+          "日常使いに便利そうな立地の印象",
+        ],
+        その他: [
+          "写真から清潔感と使いやすさが伝わる",
+          "明るく整った印象のおすすめポイント",
+          "住み心地のよさが感じられる一枚",
+        ],
       },
     },
     house: {
@@ -449,27 +546,117 @@
         "その他",
       ],
       templates: {
-        外観: ["清潔感ある外観", "落ち着いた外観", "駐車スペース付き"],
-        間取り: ["使いやすい間取り", "家事動線の良い間取"],
-        リビング: ["明るいリビング", "広々リビング", "日当たり良好LDK"],
-        "居間・リビング": ["南向きリビング", "明るい居間"],
-        ダイニング: ["明るいダイニング", "リビング続きのDK"],
-        キッチン: ["対面キッチン", "システムキッチン", "食洗機付きキッチン"],
-        洋室: ["収納付き洋室", "明るい洋室"],
-        和室: ["落ち着いた和室", "続き間の和室"],
-        寝室: ["落ち着いた寝室", "収納付き寝室"],
-        子供部屋: ["明るい子ども部屋", "成長に合う部屋"],
-        玄関: ["明るい玄関", "収納付き玄関"],
-        廊下: ["明るい廊下", "動線の良い廊下"],
-        収納: ["豊富な収納", "ウォークイン収納"],
-        浴室: ["追い焚き付き浴室", "清潔感ある浴室"],
-        洗面: ["三面鏡洗面台", "収納付き洗面"],
-        トイレ: ["清潔感あるトイレ", "温水洗浄便座"],
-        バルコニー: ["広々バルコニー", "南向きバルコニー"],
-        庭: ["プライベート庭", "ガーデニング可"],
-        駐車場: ["カースペースあり", "敷地内駐車場"],
-        周辺環境: ["生活便利な立地", "閑静な住宅街"],
-        その他: ["おすすめポイント", "詳細はお問合せを"],
+        外観: [
+          "落ち着いた色味のきれいな外観",
+          "駐車スペース付きで使いやすい外観",
+          "植栽のあるやわらかい印象の外観",
+          "シンプルで清潔感ある戸建て外観",
+        ],
+        間取り: [
+          "家事動線を意識した使いやすい間取り",
+          "各部屋の配置が分かりやすい間取図",
+          "生活しやすいバランスの良い間取り",
+        ],
+        リビング: [
+          "採光のよい明るいリビングで開放感あり",
+          "広がりを感じる清潔感あるリビング空間",
+          "家族が集まりやすい明るいリビング",
+          "窓辺が心地よい落ち着いたリビング",
+        ],
+        "居間・リビング": [
+          "日当たりのよい明るい居間でくつろげる",
+          "やわらかい光が入る落ち着いた居間",
+          "家族が集まりやすい広がりのある居間",
+        ],
+        ダイニング: [
+          "明るく食事が楽しめるダイニング空間",
+          "キッチンとつながる使いやすいダイニング",
+          "採光のよい清潔感あるダイニング",
+        ],
+        キッチン: [
+          "作業しやすく清潔感のあるキッチン空間",
+          "明るい対面キッチンで会話もはずむ",
+          "収納たっぷりの使いやすいキッチン",
+          "シンプルで整った印象のキッチン",
+        ],
+        洋室: [
+          "採光のよい明るい洋室で使いやすい",
+          "収納付きで生活しやすい洋室",
+          "落ち着いた雰囲気のきれいな洋室",
+        ],
+        和室: [
+          "落ち着きのある和室で寛げる空間",
+          "やわらかい印象のきれいな和室",
+          "続き間としても使える和の空間",
+        ],
+        寝室: [
+          "休息にふさわしい落ち着いた寝室",
+          "収納付きで使いやすい寝室空間",
+          "穏やかなトーンのきれいな寝室",
+        ],
+        子供部屋: [
+          "明るく成長に合わせやすい子ども部屋",
+          "採光のよい使いやすい子ども部屋",
+          "収納もある過ごしやすい子ども部屋",
+        ],
+        玄関: [
+          "明るく迎えやすい清潔感ある玄関",
+          "収納付きで使いやすい玄関スペース",
+          "すっきり整った印象の玄関まわり",
+        ],
+        廊下: [
+          "明るく動線の良い廊下が印象的",
+          "すっきり通れる清潔感ある廊下",
+          "床もきれいで歩きやすい廊下空間",
+        ],
+        収納: [
+          "しまえる場所が多く生活しやすい収納",
+          "奥行きのある使いやすい収納スペース",
+          "整理整頓しやすい収納力が魅力",
+        ],
+        浴室: [
+          "清潔感のある浴室で毎日の入浴が快適",
+          "明るく掃除しやすい印象の浴室",
+          "落ち着いて使えるきれいな浴室空間",
+        ],
+        洗面: [
+          "使いやすく清潔感ある洗面スペース",
+          "収納付きで朝の準備がしやすい洗面",
+          "明るくすっきりした洗面化粧台まわり",
+        ],
+        トイレ: [
+          "手洗いカウンター付きで清潔感あるトイレ",
+          "明るくすっきりした印象のトイレスペース",
+          "温水洗浄便座付きのきれいなトイレ",
+          "毎日使いやすい整ったトイレ空間",
+          "コンパクトでも清潔感のあるトイレ",
+          "手洗い付きで来客時も安心のトイレ",
+        ],
+        バルコニー: [
+          "明るく開放感のあるバルコニー空間",
+          "洗濯物も干しやすい広々バルコニー",
+          "外の空気を感じられるバルコニー",
+        ],
+        庭: [
+          "プライベート感のある使いやすいお庭",
+          "植栽を楽しめるやわらかい庭空間",
+          "手入れしやすい印象のきれいなお庭",
+        ],
+        駐車場: [
+          "駐車しやすいカースペースが魅力",
+          "出し入れしやすい敷地内駐車場",
+          "日常使いに便利な駐車スペース",
+        ],
+        周辺環境: [
+          "閑静な住宅街の落ち着いた雰囲気",
+          "生活利便を感じる周辺環境の印象",
+          "街並みの雰囲気がよい立地感",
+        ],
+        その他: [
+          "写真から清潔感と使いやすさが伝わる",
+          "明るく整った印象のおすすめポイント",
+          "住み心地のよさが感じられる一枚",
+        ],
       },
     },
     land: {
@@ -486,13 +673,42 @@
         "その他",
       ],
       templates: {
-        現地: ["整った現地", "明るく開放的な現地", "建築向きの土地"],
-        前面道路: ["接道状況良好", "前面道路が広い"],
-        整形地: ["使いやすい整形地", "プランニングしやすい"],
-        建築向き: ["建築しやすい土地", "希望の家が建てやすい"],
-        駐車場: ["駐車しやすい土地", "車寄せしやすい"],
-        周辺環境: ["生活便利な立地", "閑静な住宅街"],
-        その他: ["おすすめの土地", "詳細はお問合せを"],
+        現地: [
+          "明るく開放感のある整った現地",
+          "建築イメージが湧きやすい現地の印象",
+          "日当たりのよさが感じられる現地",
+          "すっきり見渡せるきれいな現地",
+        ],
+        前面道路: [
+          "接道の印象がよく使いやすそう",
+          "前面道路との関係が分かりやすい",
+          "出入りしやすい印象の道路づけ",
+        ],
+        整形地: [
+          "プランニングしやすい整形地の印象",
+          "使いやすい形のきれいな整形地",
+          "建築しやすいバランスの良い整形地",
+        ],
+        建築向き: [
+          "希望の家をイメージしやすい建築向き",
+          "日当たりを感じる建築しやすい土地",
+          "周辺との関係がよい建築向きの印象",
+        ],
+        駐車場: [
+          "車寄せしやすい印象の駐車スペース",
+          "駐車計画を立てやすい土地の印象",
+          "車の出し入れがしやすそうな配置",
+        ],
+        周辺環境: [
+          "閑静な住宅街の落ち着いた雰囲気",
+          "生活利便を感じる周辺環境の印象",
+          "街並みの雰囲気がよい立地感",
+        ],
+        その他: [
+          "建築の可能性を感じるおすすめの土地",
+          "写真から開放感が伝わる土地の一枚",
+          "検討しやすい印象の現地写真",
+        ],
       },
     },
   };
@@ -739,14 +955,23 @@
 
     const list = getCaptionTemplates()[category] || [];
     list.forEach((text, i) => {
-      const body = clampCaptionBody(text);
+      const body = clampCaptionBody(stripCaptionPrefix(text));
       if (!body) return;
       const opt = document.createElement("option");
       opt.value = body;
-      const full = withCaptionPrefix(body);
-      opt.textContent = `${i + 1}. ${full}`;
+      const full = formatCaptionOutput(body);
+      const count = charLen(isCaptionPrefixEnabled() ? full : body);
+      opt.textContent = `${i + 1}. ${full}（${count}文字）`;
       captionTemplate.append(opt);
     });
+  }
+
+  function isCaptionPrefixEnabled() {
+    return captionPrefixEnabled;
+  }
+
+  function getCaptionBodyMax() {
+    return isCaptionPrefixEnabled() ? CAPTION_MAX_LEN - CAPTION_PREFIX_LEN : CAPTION_MAX_LEN;
   }
 
   function charLen(text) {
@@ -755,7 +980,7 @@
 
   function clampCaptionBody(text) {
     return Array.from(String(text || "").trim())
-      .slice(0, CAPTION_BODY_MAX)
+      .slice(0, getCaptionBodyMax())
       .join("");
   }
 
@@ -770,16 +995,68 @@
       .trim();
   }
 
-  function withCaptionPrefix(text) {
+  function formatCaptionOutput(text) {
     const body = clampCaptionBody(stripCaptionPrefix(text));
+    if (!isCaptionPrefixEnabled()) return body;
     const full = body ? `${CAPTION_PREFIX}${body}` : CAPTION_PREFIX;
     return Array.from(full).slice(0, CAPTION_MAX_LEN).join("");
+  }
+
+  /** @deprecated use formatCaptionOutput */
+  function withCaptionPrefix(text) {
+    return formatCaptionOutput(text);
+  }
+
+  function updateCaptionPrefixUi() {
+    if (captionPrefixPicker) {
+      captionPrefixPicker.querySelectorAll(".caption-prefix-mode-btn").forEach((btn) => {
+        const active = (btn.dataset.prefix === "on") === isCaptionPrefixEnabled();
+        btn.classList.toggle("is-active", active);
+        btn.setAttribute("aria-pressed", active ? "true" : "false");
+      });
+    }
+    if (captionPrefixBadge) captionPrefixBadge.hidden = !isCaptionPrefixEnabled();
+    if (captionInputWrap) captionInputWrap.classList.toggle("no-prefix", !isCaptionPrefixEnabled());
+    if (captionInput) captionInput.maxLength = getCaptionBodyMax();
+    if (captionMaxLabel) captionMaxLabel.textContent = String(CAPTION_MAX_LEN);
+    if (captionPrefixLabelNote) {
+      captionPrefixLabelNote.textContent = isCaptionPrefixEnabled() ? "（《杏栄》込み）" : "";
+    }
+    if (captionLimitHint) {
+      captionLimitHint.textContent = isCaptionPrefixEnabled()
+        ? `《杏栄》を含めて合計${CAPTION_MAX_LEN}文字以内です`
+        : `本文のみ合計${CAPTION_MAX_LEN}文字以内です（《杏栄》は付けません）`;
+    }
+    if (captionInput?.value) {
+      captionInput.value = clampCaptionBody(stripCaptionPrefix(captionInput.value));
+      persistCaptionFromUi();
+    }
+    updateCaptionCount();
+    if (captionCategory) fillCaptionTemplates(captionCategory.value || "");
+    if (photos.length) renderGallery();
+  }
+
+  function setCaptionPrefixEnabled(enabled, { silent = false } = {}) {
+    captionPrefixEnabled = Boolean(enabled);
+    localStorage.setItem(CAPTION_PREFIX_STORAGE, captionPrefixEnabled ? "1" : "0");
+    updateCaptionPrefixUi();
+    if (!silent) {
+      showToast(captionPrefixEnabled ? "《杏栄》を付ける設定にしました" : "《杏栄》なしで出力します");
+    }
+  }
+
+  function restoreCaptionPrefixPreference() {
+    const saved = localStorage.getItem(CAPTION_PREFIX_STORAGE);
+    captionPrefixEnabled = saved !== "0";
+    updateCaptionPrefixUi();
   }
 
   function updateCaptionCount() {
     const label = document.getElementById("captionCountLabel");
     if (!label) return;
-    label.textContent = String(charLen(withCaptionPrefix(captionInput.value)));
+    const body = clampCaptionBody(stripCaptionPrefix(captionInput?.value || ""));
+    const counted = isCaptionPrefixEnabled() ? formatCaptionOutput(body) : body;
+    label.textContent = String(charLen(counted));
   }
 
   function formatCaption(category, body) {
@@ -859,7 +1136,7 @@
     return photos
       .map((photo, i) => {
         const caption = photo.caption?.trim()
-          ? withCaptionPrefix(photo.caption)
+          ? formatCaptionOutput(photo.caption)
           : "（未入力）";
         return `${i + 1}. ${photo.name}\n${caption}`;
       })
@@ -872,7 +1149,7 @@
     return photos
       .map((photo) => (photo.caption || "").trim())
       .filter(Boolean)
-      .map((caption) => withCaptionPrefix(caption))
+      .map((caption) => formatCaptionOutput(caption))
       .join("\n");
   }
 
@@ -1169,63 +1446,100 @@
     const typeConfig = getPropertyTypeConfig();
     const categories = getCaptionCategories().join(" / ");
     const address = getPropertyAddress();
+    const bodyMax = getCaptionBodyMax();
+    const minAim = Math.max(8, Math.floor(bodyMax * 0.85));
     const addressBlock = address
       ? `物件住所: ${address}
 ※住所がある場合:
-- カテゴリが「周辺環境」「外観」「現地」などのとき、エリアの一般的な生活利便を踏まえてよい
+- カテゴリが「周辺環境」「外観」「現地」などのとき、エリアから受ける雰囲気を補足してよい
 - 「徒歩○分」「○m」など正確な数値は書かない
-- 室内カテゴリのときは住所より写真内容を優先する`
+- 室内カテゴリのときは住所より写真の印象を優先する`
       : `物件住所: （未入力）`;
 
     const categoryBlock = hintCategory
       ? `指定カテゴリ: ${hintCategory}
-※重要: このカテゴリの写真としてキャプションを書くこと。category は必ず「${hintCategory}」にする。
-他の部屋・設備の話にすり替えない。写真がそのカテゴリに見えにくい場合も、指定カテゴリの観点で短く書く。`
+※重要: category は必ず「${hintCategory}」にする。
+写真をそのカテゴリの視点で見て、写っているもの・光・空気感からキャプションを作る。`
       : `指定カテゴリ: （未指定）
 カテゴリは写真内容から判断し、次のいずれかにする: ${categories}`;
 
     const visualHint = hintCategory
       ? CATEGORY_VISUAL_HINTS[hintCategory] || CATEGORY_VISUAL_HINTS["その他"]
-      : "写真の主題となる空間・設備・景色を特定する";
-    const visualBlock = `このカテゴリで写真を見るときの観察ポイント:
+      : "写真の主題となる空間・設備・景色・光・色味・雰囲気を特定する";
+    const visualBlock = `観察のヒント（事実確認用）:
 ${visualHint}`;
-
-    const templateExamples = hintCategory ? getCaptionTemplates()[hintCategory] : null;
-    const exampleBlock = templateExamples?.length
-      ? `文体の参考（写真の内容と一致する場合のみ。無理に使わない）:
-${templateExamples.map((t) => `・${t}`).join("\n")}`
-      : "";
 
     const fileBlock = photoName
       ? `写真ファイル名（参考・断定しない）: ${photoName}`
       : "";
 
-    return `添付写真を注意深く観察し、不動産登録サイト用の短いキャプションを作成してください。
+    const lengthBlock = isCaptionPrefixEnabled()
+      ? `文字数（最重要）:
+- 最終表示では先頭に《杏栄》（${CAPTION_PREFIX_LEN}文字）が付く
+- caption 本文は《杏栄》なしで、ちょうど ${bodyMax} 文字を目指す（最低でも ${minAim} 文字以上）
+- 短い名詞句だけで終わらせず、光・広がり・質感・使い勝手など写真から受ける印象を足して上限近くまで使う
+- ${bodyMax} 文字を超えない`
+      : `文字数（最重要）:
+- caption 本文はちょうど ${bodyMax} 文字を目指す（最低でも ${minAim} 文字以上）
+- 短い名詞句だけで終わらせず、光・広がり・質感・使い勝手など写真から受ける印象を足して上限近くまで使う
+- ${bodyMax} 文字を超えない`;
+
+    return `添付写真を注意深く観察し、不動産登録用の日本語キャプションを作成してください。
+
+方針:
+- HOUSEDOなどの定型文・決まり文句に寄せない
+- 写真を見た人が感じる印象・雰囲気を、写っている事実に基づいて言葉にする
+- 設備名の羅列ではなく、「明るさ」「開放感」「清潔感」「落ち着き」「広がり」など視覚的な印象を優先する
+- 写っていない設備・特徴は絶対に書かない
 
 物件種別: ${typeConfig.label}
 種別の注意: ${typeConfig.focus}
 
 ${categoryBlock}
 ${visualBlock}
-${exampleBlock}
 ${fileBlock}
 ${addressBlock}
 
+${lengthBlock}
+
 作業手順（必ず守る）:
-1. 写真に実際に写っているものだけを observation に列挙する（推測・一般論は書かない）
-2. observation を根拠に caption を1つ作る
+1. 写真に実際に写っているものと、そこから受ける印象を observation に書く
+2. observation を根拠に caption を1つ作る（印象語は写真の見た目と矛盾しないこと）
 3. 写っていない設備・特徴は caption に入れない（例: 食洗機が見えなければ「食洗機付き」と書かない）
+4. caption は可能な限り ${bodyMax} 文字ちょうどに近づける
 
 出力ルール:
-1. 必ず次のJSONのみを返す（前後に説明文やコードフェンスを付けない）
-{"category":"カテゴリ名","observation":"写真で確認できた事実を短く","caption":"本文のみ（《杏栄》なし）"}
-2. category は指定があればそのカテゴリ。なければ次のいずれか: ${categories}
-3. caption は日本語。先頭の《杏栄》（4文字）を含めた合計が20文字以内になるよう、本文は最大${CAPTION_BODY_MAX}文字
-4. 【カテゴリ】や■、《杏栄》は付けない。名詞句・短いフレーズのみ
-5. 指定カテゴリと物件種別に合わない表現は禁止
-6. 誇大表現・虚偽（正確な駅距離・面積・価格など）は禁止
-7. 句読点や「です・ます」はなるべく使わず、コンパクトに
-8. caption に「《杏栄》」は付けない（システム側で付与する）`;
+1. 出力は日本語のJSONオブジェクトのみ。英語の説明文・前置き・コードフェンスは禁止
+2. 次の形だけを返す（前後に文字を付けない）
+{"category":"カテゴリ名","observation":"写真で確認できた事実と印象","caption":"本文のみ（《杏栄》なし）","charCount":本文の文字数}
+3. category は指定があればそのカテゴリ。なければ次のいずれか: ${categories}
+4. caption は日本語のみ。《杏栄》は付けない。本文のみ ${bodyMax} 文字以内、目標は ${bodyMax} 文字
+5. 【カテゴリ】や■は付けない
+6. 「です・ます」は使わず、読みやすい短い文やフレーズでまとめる（句読点は必要なら可）
+7. 指定カテゴリと物件種別に合わない表現は禁止
+8. 誇大表現・虚偽（正確な駅距離・面積・価格など）は禁止
+9. 定型の「おすすめポイント」「詳細はお問合せを」などの無難な文言だけで埋めない
+10. charCount は caption の文字数（日本語1文字＝1）を自己点検して入れる
+11. 「Here is the JSON」など英語コメントは絶対に書かない`;
+  }
+
+  function isUsableCaptionText(text) {
+    const body = clampCaptionBody(stripCaptionPrefix(text));
+    if (!body) return false;
+    if (/Here is|JSON|```|requested|following|caption\s*:/i.test(body)) return false;
+    if (/^[A-Za-z0-9\s\{\}\[\]:"',.`_-]+$/.test(body)) return false;
+    const jp = (body.match(/[\u3040-\u30ff\u3400-\u9fff々ー]/g) || []).length;
+    return jp >= Math.min(4, charLen(body));
+  }
+
+  function pickFallbackCaption(category) {
+    const list = (getCaptionTemplates()[category] || getCaptionTemplates()["その他"] || []).map((t) =>
+      clampCaptionBody(stripCaptionPrefix(t))
+    ).filter(Boolean);
+    if (!list.length) {
+      return clampCaptionBody("写真から清潔感と使いやすさが伝わる");
+    }
+    return list[Math.floor(Math.random() * list.length)];
   }
 
   function parseCaptionResponse(text) {
@@ -1241,8 +1555,8 @@ ${addressBlock}
           const found = categories.find((c) => category.includes(c) || caption.includes(c));
           category = found || "その他";
         }
-        if (!caption) throw new Error("empty caption");
         caption = clampCaptionBody(caption.replace(/^【[^】]*】\s*/, "").replace(/^■\s*/g, ""));
+        if (!isUsableCaptionText(caption)) throw new Error("empty caption");
         return { category, caption };
       } catch (_) {
         /* fallback below */
@@ -1253,12 +1567,13 @@ ${addressBlock}
       stripCaptionPrefix(
         raw
           .replace(/^```(?:json)?\s*|\s*```$/g, "")
+          .replace(/^Here is[\s\S]*?:\s*/i, "")
           .replace(/^【[^】]*】\s*/, "")
           .replace(/^■\s*/g, "")
           .trim()
       )
     );
-    if (!cleaned) throw new Error("empty response");
+    if (!isUsableCaptionText(cleaned)) throw new Error("empty response");
     const category =
       categories.find((c) => cleaned.includes(c)) ||
       categories.find((c) => raw.includes(c)) ||
@@ -1305,7 +1620,7 @@ ${addressBlock}
       systemInstruction: {
         parts: [
           {
-            text: "あなたは日本の不動産物件写真のキャプション専門家です。写真に写っている事実だけを根拠に、短く正確な日本語キャプションを作ります。推測や一般論で設備の有無を断定しません。",
+            text: `あなたは不動産物件写真のキャプション作家です。必ず日本語のJSONだけを返します。英語の説明やコードフェンスは禁止です。定型文に頼らず、写真から受ける印象を写っている事実に基づいて自然な日本語で表現します。写っていない設備は断定しません。文字数は指定上限にできるだけ近づけます（目標: 本文${getCaptionBodyMax()}文字）。`,
           },
         ],
       },
@@ -1318,8 +1633,8 @@ ${addressBlock}
         },
       ],
       generationConfig: {
-        temperature: 0.2,
-        maxOutputTokens: 384,
+        temperature: 0.45,
+        maxOutputTokens: 512,
       },
     };
 
@@ -1399,6 +1714,69 @@ ${addressBlock}
     throw lastError || new Error("生成に失敗しました");
   }
 
+  async function expandCaptionToLimit(base64Jpeg, draftCaption, hintCategory, apiKey) {
+    const bodyMax = getCaptionBodyMax();
+    const draft = clampCaptionBody(stripCaptionPrefix(draftCaption));
+    if (charLen(draft) >= Math.floor(bodyMax * 0.9)) return draft;
+
+    const prompt = `次の不動産写真キャプションを、写真の印象に合わせて自然に伸ばしてください。
+
+現在のcaption: ${draft}
+指定カテゴリ: ${hintCategory || "（なし）"}
+目標文字数: 本文ちょうど ${bodyMax} 文字（最低でも ${Math.floor(bodyMax * 0.9)} 文字）
+
+ルール:
+- HOUSEDOなどの定型文に寄せない
+- 写真から受ける印象（光・広がり・清潔感・落ち着きなど）を足す
+- 写っていない設備は追加しない
+- 《杏栄》は付けない
+- JSONのみ返す: {"caption":"本文","charCount":文字数}`;
+
+    const body = {
+      systemInstruction: {
+        parts: [
+          {
+            text: `短いキャプションを、写真の印象に基づいて自然に伸ばす専門家です。目標は本文${bodyMax}文字です。虚偽の設備は追加しません。`,
+          },
+        ],
+      },
+      contents: [
+        {
+          parts: [
+            { inline_data: { mime_type: "image/jpeg", data: base64Jpeg } },
+            { text: prompt },
+          ],
+        },
+      ],
+      generationConfig: {
+        temperature: 0.5,
+        maxOutputTokens: 256,
+        responseMimeType: "application/json",
+      },
+    };
+
+    for (const model of GEMINI_MODELS.slice(0, 3)) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) continue;
+        const text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
+        if (!text) continue;
+        const parsed = parseCaptionResponse(text);
+        const expanded = clampCaptionBody(stripCaptionPrefix(parsed.caption));
+        if (charLen(expanded) > charLen(draft)) return expanded;
+      } catch (_) {
+        /* try next model */
+      }
+    }
+    return draft;
+  }
+
   async function generateCaptionForPhoto(photo, { syncUi = false, requireCategory = true } = {}) {
     const apiKey = getGeminiApiKey();
     if (!apiKey) throw new Error("Gemini APIキーを入力してください");
@@ -1413,11 +1791,38 @@ ${addressBlock}
 
     const source = canvasFromPhoto(photo);
     const base64 = imageToJpegBase64(source, 1536);
-    const result = await callGeminiCaption(base64, category, apiKey, photo.name || "");
+    let usedFallback = false;
+    let result;
+    try {
+      result = await callGeminiCaption(base64, category, apiKey, photo.name || "");
+    } catch (err) {
+      const fallback = pickFallbackCaption(category);
+      result = { category: category || "その他", caption: fallback };
+      usedFallback = true;
+      console.warn("AI caption failed; using template fallback", err);
+    }
+
+    const bodyMax = getCaptionBodyMax();
+    let caption = clampCaptionBody(stripCaptionPrefix(result.caption));
+    if (!isUsableCaptionText(caption)) {
+      caption = pickFallbackCaption(category || result.category);
+      usedFallback = true;
+    } else if (!usedFallback && charLen(caption) < Math.floor(bodyMax * 0.85)) {
+      if (syncUi) setAiStatus("文字数を上限近くまで調整中…");
+      try {
+        caption = await expandCaptionToLimit(base64, caption, category || result.category, apiKey);
+      } catch (_) {
+        /* keep original */
+      }
+      if (!isUsableCaptionText(caption)) {
+        caption = pickFallbackCaption(category || result.category);
+        usedFallback = true;
+      }
+    }
 
     // ユーザー指定カテゴリを優先して固定
     photo.captionCategory = category || result.category;
-    photo.caption = clampCaptionBody(stripCaptionPrefix(result.caption));
+    photo.caption = clampCaptionBody(caption);
 
     if (syncUi && photo.id === activePhotoId) {
       captionCategory.value = photo.captionCategory;
@@ -1425,7 +1830,7 @@ ${addressBlock}
       fillCaptionTemplates(photo.captionCategory);
       updateCaptionCount();
     }
-    return result;
+    return { ...result, caption: photo.caption, usedFallback };
   }
 
   async function generateActiveCaption() {
@@ -1448,10 +1853,15 @@ ${addressBlock}
     setAiStatus(`「${captionCategory.value}」として生成中…`);
 
     try {
-      await generateCaptionForPhoto(photo, { syncUi: true, requireCategory: true });
+      const result = await generateCaptionForPhoto(photo, { syncUi: true, requireCategory: true });
       renderGallery();
-      setAiStatus("キャプションを生成しました");
-      showToast("キャプションを生成しました");
+      if (result.usedFallback) {
+        setAiStatus("AI応答が不安定だったため定型文を入れました。必要なら差し替えてください");
+        showToast("定型文でキャプションを入れました");
+      } else {
+        setAiStatus("キャプションを生成しました");
+        showToast("キャプションを生成しました");
+      }
     } catch (err) {
       console.warn(err);
       const msg = explainGeminiError(err);
@@ -1599,7 +2009,7 @@ ${addressBlock}
       if (photo.caption) {
         const cap = document.createElement("span");
         cap.className = "gallery-caption-preview";
-        cap.textContent = withCaptionPrefix(photo.caption);
+        cap.textContent = formatCaptionOutput(photo.caption);
         meta.append(cap);
       }
 
@@ -1683,6 +2093,7 @@ ${addressBlock}
     setActiveSkyPresetId(DEFAULT_SKY_PRESET);
     restoreWatermarkPreference();
     restoreOverwritePreference();
+    restoreCaptionPrefixPreference();
     updateLightLabels();
     updateSkyLabels();
     updateSkyPresetActive();
@@ -4141,6 +4552,14 @@ ${addressBlock}
     renderGallery();
   });
 
+  if (captionPrefixPicker) {
+    captionPrefixPicker.querySelectorAll(".caption-prefix-mode-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        setCaptionPrefixEnabled(btn.dataset.prefix !== "off");
+      });
+    });
+  }
+
   copyCaptionBtn.addEventListener("click", () => {
     persistCaptionFromUi();
     const photo = getActivePhoto();
@@ -4149,7 +4568,7 @@ ${addressBlock}
       notifyError("コピーする内容がありません");
       return;
     }
-    copyText(withCaptionPrefix(body), "キャプションをコピーしました");
+    copyText(formatCaptionOutput(body), "キャプションをコピーしました");
   });
 
   clearCaptionBtn.addEventListener("click", () => {
@@ -4159,6 +4578,7 @@ ${addressBlock}
       photo.caption = "";
       renderGallery();
     }
+    updateCaptionCount();
   });
 
   copyAllCaptionsBtn.addEventListener("click", () => {
@@ -4205,6 +4625,7 @@ ${addressBlock}
 
   restoreWatermarkPreference();
   restoreOverwritePreference();
+  restoreCaptionPrefixPreference();
   loadWatermarkImage()
     .then(() => {
       if (baseImageData) renderEffects();
