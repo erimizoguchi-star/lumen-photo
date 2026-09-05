@@ -3,7 +3,7 @@ set -euo pipefail
 
 PHOTO_DIR="/Users/erimizoguchi/Desktop/photo"
 PORT=5173
-URL="http://127.0.0.1:${PORT}/?v=25"
+URL="http://127.0.0.1:${PORT}/?v=28"
 RUBY="/usr/bin/ruby"
 LOG="/tmp/lumen-httpd.log"
 

@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const APP_VERSION = "25";
+  const APP_VERSION = "28";
 
   const fileInput = document.getElementById("fileInput");
   const fileHint = document.getElementById("fileHint");
@@ -204,6 +204,10 @@
   /** Base pixels after structural edits (before light effects) */
   let baseImageData = null;
   let skyMaskCache = { key: "", mask: null };
+  /** 画面プレビュー用に縮小した base（空・明るさの再計算を軽くする） */
+  let litPreviewCache = { source: null, data: null };
+  let renderEffectsRaf = 0;
+  const LIT_PREVIEW_MAX_EDGE = 1280;
   let aspectRatio = 1;
   let activeTool = "resize";
   let activePanelTab = "photos";
@@ -2111,7 +2115,7 @@ ${lengthBlock}
     setImportLoading(false);
     sourceImage = null;
     baseImageData = null;
-    skyMaskCache = { key: "", mask: null };
+    invalidateSkyCaches();
     activePhotoId = null;
     cropRect = null;
     previewAngle = 0;
@@ -2184,7 +2188,7 @@ ${lengthBlock}
       canvas.height = data.height;
       ctx.putImageData(data, 0, 0);
       baseImageData = data;
-      skyMaskCache = { key: "", mask: null };
+      invalidateSkyCaches();
       aspectRatio = canvas.width / canvas.height;
       resizeWidth.value = String(canvas.width);
       resizeHeight.value = String(canvas.height);
@@ -2535,7 +2539,7 @@ ${lengthBlock}
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
     baseImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    skyMaskCache = { key: "", mask: null };
+    invalidateSkyCaches();
     aspectRatio = canvas.width / canvas.height;
     resizeWidth.value = String(canvas.width);
     resizeHeight.value = String(canvas.height);
@@ -2566,6 +2570,32 @@ ${lengthBlock}
 
   function getActiveSkyPresetId() {
     return activeSkyPresetId;
+  }
+
+  function invalidateSkyCaches() {
+    skyMaskCache = { key: "", mask: null };
+    litPreviewCache = { source: null, data: null };
+  }
+
+  function getLitPreviewImageData() {
+    if (!baseImageData) return null;
+    if (litPreviewCache.source === baseImageData && litPreviewCache.data) {
+      return litPreviewCache.data;
+    }
+    const w = baseImageData.width;
+    const h = baseImageData.height;
+    const longEdge = Math.max(w, h);
+    let data = baseImageData;
+    if (longEdge > LIT_PREVIEW_MAX_EDGE) {
+      const scale = LIT_PREVIEW_MAX_EDGE / longEdge;
+      data = scaleImageData(
+        baseImageData,
+        Math.max(1, Math.round(w * scale)),
+        Math.max(1, Math.round(h * scale)),
+      );
+    }
+    litPreviewCache = { source: baseImageData, data };
+    return data;
   }
 
   function setActiveSkyPresetId(id) {
@@ -2689,8 +2719,15 @@ ${lengthBlock}
     b += brightness * 1.8;
 
     if (preset.clouds > 0) {
-      const n1 = softNoise(xRatio * 6.5, yRatio * 4.2);
-      const n2 = softNoise(xRatio * 14 + 3.1, yRatio * 9.5 + 1.7);
+      let n1;
+      let n2;
+      if (opts.preview) {
+        n1 = hashNoise(Math.floor(xRatio * 48), Math.floor(yRatio * 32));
+        n2 = hashNoise(Math.floor(xRatio * 96 + 3), Math.floor(yRatio * 64 + 2));
+      } else {
+        n1 = softNoise(xRatio * 6.5, yRatio * 4.2);
+        n2 = softNoise(xRatio * 14 + 3.1, yRatio * 9.5 + 1.7);
+      }
       const cloud = Math.pow(Math.max(0, n1 * 0.65 + n2 * 0.35 - 0.42), 1.35);
       const amount = cloud * preset.clouds * (0.22 + t * 0.2);
       r = r * (1 - amount) + 248 * amount;
@@ -2807,26 +2844,50 @@ ${lengthBlock}
       }
     }
 
-    const soft = new Float32Array(w * h);
     const radius = Math.max(1, Math.round(Math.min(w, h) * 0.003 * (1 + edgeFade * 1.8)));
-    for (let y = 0; y <= maxY; y += 1) {
+    const soft = softBlurSkyMask(hard, w, h, maxY, radius);
+    skyMaskCache = { key, mask: soft };
+    return soft;
+  }
+
+  /** 分離ボックスぼかし（O(半径)）。従来の二重ループぼかしより大幅に軽い */
+  function softBlurSkyMask(hard, w, h, maxY, radius) {
+    const soft = new Float32Array(w * h);
+    const tmp = new Float32Array(w * h);
+    const yLimit = Math.min(h - 1, maxY + radius);
+
+    for (let y = 0; y <= yLimit; y += 1) {
+      const row = y * w;
+      let sum = 0;
+      for (let x = 0; x <= Math.min(w - 1, radius); x += 1) sum += hard[row + x];
       for (let x = 0; x < w; x += 1) {
-        let sum = 0;
-        let count = 0;
-        for (let dy = -radius; dy <= radius; dy += 1) {
-          for (let dx = -radius; dx <= radius; dx += 1) {
-            const nx = x + dx;
-            const ny = y + dy;
-            if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
-            sum += hard[ny * w + nx];
-            count += 1;
-          }
+        const x0 = Math.max(0, x - radius);
+        const x1 = Math.min(w - 1, x + radius);
+        if (x > 0) {
+          const leave = x - radius - 1;
+          if (leave >= 0) sum -= hard[row + leave];
+          const enter = x + radius;
+          if (enter < w) sum += hard[row + enter];
         }
-        soft[y * w + x] = count ? sum / count : 0;
+        tmp[row + x] = sum / (x1 - x0 + 1);
       }
     }
 
-    skyMaskCache = { key, mask: soft };
+    for (let x = 0; x < w; x += 1) {
+      let sum = 0;
+      for (let y = 0; y <= Math.min(yLimit, radius); y += 1) sum += tmp[y * w + x];
+      for (let y = 0; y <= Math.min(h - 1, maxY); y += 1) {
+        const y0 = Math.max(0, y - radius);
+        const y1 = Math.min(yLimit, y + radius);
+        if (y > 0) {
+          const leave = y - radius - 1;
+          if (leave >= 0) sum -= tmp[leave * w + x];
+          const enter = y + radius;
+          if (enter <= yLimit) sum += tmp[enter * w + x];
+        }
+        soft[y * w + x] = sum / (y1 - y0 + 1);
+      }
+    }
     return soft;
   }
 
@@ -2954,6 +3015,56 @@ ${lengthBlock}
       dst[i + 1] = g;
       dst[i + 2] = b;
       dst[i + 3] = src[i + 3];
+    }
+  }
+
+  async function processLitPixelsAsync(imageData, dst, bright, contrastVal, skyOpts) {
+    const w = imageData.width;
+    const h = imageData.height;
+    const src = imageData.data;
+    const cFactor = (259 * (contrastVal + 255)) / (255 * (259 - contrastVal));
+    const skyMask =
+      skyOpts.strength > 0
+        ? buildConnectedSkyMask(imageData, skyOpts.range, skyOpts.edgeFade)
+        : null;
+    await yieldToUi();
+
+    const rowStride = Math.max(24, Math.floor(180000 / Math.max(1, w)));
+    for (let y0 = 0; y0 < h; y0 += rowStride) {
+      const y1 = Math.min(h, y0 + rowStride);
+      for (let y = y0; y < y1; y += 1) {
+        for (let x = 0; x < w; x += 1) {
+          const i = (y * w + x) * 4;
+          let r = src[i];
+          let g = src[i + 1];
+          let b = src[i + 2];
+          r = clamp(r + bright, 0, 255);
+          g = clamp(g + bright, 0, 255);
+          b = clamp(b + bright, 0, 255);
+          r = clamp(cFactor * (r - 128) + 128, 0, 255);
+          g = clamp(cFactor * (g - 128) + 128, 0, 255);
+          b = clamp(cFactor * (b - 128) + 128, 0, 255);
+
+          if (skyMask) {
+            const pix = y * w + x;
+            const out = blendSkyPixel(r, g, b, y / h, x / w, skyMask[pix], skyOpts);
+            r = out.r;
+            g = out.g;
+            b = out.b;
+          } else if (skyOpts.foreground > 0) {
+            const out = applyForegroundLight(r, g, b, y / h, 0, skyOpts);
+            r = out.r;
+            g = out.g;
+            b = out.b;
+          }
+
+          dst[i] = r;
+          dst[i + 1] = g;
+          dst[i + 2] = b;
+          dst[i + 3] = src[i + 3];
+        }
+      }
+      await yieldToUi();
     }
   }
 
@@ -3097,7 +3208,7 @@ ${lengthBlock}
       const workingData = scaleImageData(data, w, h);
       await yieldToUi();
       const out = new ImageData(w, h);
-      processLitPixels(workingData, out.data, bright, contrastVal, skyOpts);
+      await processLitPixelsAsync(workingData, out.data, bright, contrastVal, skyOpts);
       temp = document.createElement("canvas");
       temp.width = w;
       temp.height = h;
@@ -3112,22 +3223,48 @@ ${lengthBlock}
 
   function buildLitCanvas() {
     if (!baseImageData) return null;
-    const w = baseImageData.width;
-    const h = baseImageData.height;
-    const out = ctx.createImageData(w, h);
-    processLitPixels(
-      baseImageData,
-      out.data,
-      Number(brightness.value),
-      Number(contrast.value),
-      getSkyOptionsFromUi(),
-    );
+    const fullW = baseImageData.width;
+    const fullH = baseImageData.height;
+    const preview = getLitPreviewImageData();
+    if (!preview) return null;
+    const w = preview.width;
+    const h = preview.height;
+    const bright = Number(brightness.value);
+    const contrastVal = Number(contrast.value);
+    const skyOpts = { ...getSkyOptionsFromUi(), preview: true };
+
     const temp = document.createElement("canvas");
-    temp.width = w;
-    temp.height = h;
-    temp.getContext("2d").putImageData(out, 0, 0);
+    temp.width = fullW;
+    temp.height = fullH;
+    const tctx = temp.getContext("2d");
+
+    if (!needsLitProcessing(bright, contrastVal, skyOpts)) {
+      tctx.putImageData(baseImageData, 0, 0);
+    } else {
+      const out = new ImageData(w, h);
+      processLitPixels(preview, out.data, bright, contrastVal, skyOpts);
+      if (w === fullW && h === fullH) {
+        tctx.putImageData(out, 0, 0);
+      } else {
+        const small = document.createElement("canvas");
+        small.width = w;
+        small.height = h;
+        small.getContext("2d").putImageData(out, 0, 0);
+        tctx.imageSmoothingEnabled = true;
+        tctx.imageSmoothingQuality = "high";
+        tctx.drawImage(small, 0, 0, fullW, fullH);
+      }
+    }
     applyWatermarkToCanvas(temp);
     return temp;
+  }
+
+  function scheduleRenderEffects() {
+    if (renderEffectsRaf) return;
+    renderEffectsRaf = requestAnimationFrame(() => {
+      renderEffectsRaf = 0;
+      renderEffects();
+    });
   }
 
   function drawSkyPresetThumb(presetId, canvas) {
@@ -3431,7 +3568,7 @@ ${lengthBlock}
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(sourceCanvas, 0, 0);
     baseImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    skyMaskCache = { key: "", mask: null };
+    invalidateSkyCaches();
     aspectRatio = canvas.width / canvas.height;
     resizeWidth.value = String(canvas.width);
     resizeHeight.value = String(canvas.height);
@@ -3556,7 +3693,7 @@ ${lengthBlock}
       canvas.width = data.width;
       canvas.height = data.height;
       ctx.putImageData(data, 0, 0);
-      skyMaskCache = { key: "", mask: null };
+      invalidateSkyCaches();
       aspectRatio = data.width / data.height;
       resizeWidth.value = String(data.width);
       resizeHeight.value = String(data.height);
@@ -4914,7 +5051,7 @@ ${lengthBlock}
     if (!batchResizeHint) return;
     const preset = activeExportPreset && EXPORT_PRESETS[activeExportPreset];
     if (preset?.kind === "iri-box") {
-      batchResizeHint.textContent = `${preset.label}: ${preset.minW}〜${preset.maxW}px・${Math.round(preset.maxBytes / 1024)}KB以内（保存時に上限ギリギリまで圧縮）`;
+      batchResizeHint.textContent = `${preset.label}: ${preset.minW}〜${preset.maxW}px・${Math.round(preset.maxBytes / 1024)}KB以内（保存時は画質10〜8段階で調整）`;
       if (batchLongEdgeField) batchLongEdgeField.hidden = true;
       return;
     }
@@ -4944,7 +5081,7 @@ ${lengthBlock}
     if (exportPresetHint) {
       const preset = EXPORT_PRESETS[activeExportPreset];
       exportPresetHint.textContent = preset
-        ? `IRI公式ガイドライン準拠: ${preset.hint}（保存時は容量上限ギリギリまで画質を上げます）`
+        ? `IRI公式ガイドライン準拠: ${preset.hint}（保存時はPhotoShop風の画質段階・物件写真は10→9→8…）`
         : "幅・高さを手動で指定しています。";
     }
     updateBatchResizeHint();
@@ -5157,7 +5294,7 @@ ${lengthBlock}
   [brightness, contrast].forEach((el) => {
     el.addEventListener("input", () => {
       updateLightLabels();
-      renderEffects();
+      scheduleRenderEffects();
       const photo = getActivePhoto();
       if (!photo) return;
       photo.brightness = brightness.value;
@@ -5181,7 +5318,7 @@ ${lengthBlock}
     updateSkyLabels();
     updateSkyPresetActive();
     persistSkyToActivePhoto();
-    renderEffects();
+    scheduleRenderEffects();
   }
 
   [
@@ -5690,8 +5827,32 @@ ${lengthBlock}
   }
 
   /**
-   * JPEG で品質・解像度を自動調整し、maxBytes 以下でできるだけ上限に近いデータURLを返す
+   * PhotoShop風の画質段階（12〜3、実務では最大10）で JPEG を調整する。
+   * 上限内に収まる「いちばん高い段階」を選ぶ。微調整の連続探索はしない。
    */
+  // browser quality は PhotoShop JPEG 品質の近似マップ
+  const PHOTOSHOP_JPEG_STEPS = [
+    { level: 12, quality: 0.92 },
+    { level: 11, quality: 0.88 },
+    { level: 10, quality: 0.82 },
+    { level: 9, quality: 0.76 },
+    { level: 8, quality: 0.7 },
+    { level: 7, quality: 0.62 },
+    { level: 6, quality: 0.55 },
+    { level: 5, quality: 0.48 },
+    { level: 4, quality: 0.4 },
+    { level: 3, quality: 0.32 },
+  ];
+
+  function getPhotoshopJpegSteps(maxBytes) {
+    // 物件写真(250KB)は 10〜8 を優先。収まらなければ 7 以下へ。
+    // 見出写真(5KB)は小さめから試し、必要ならさらに下げる。
+    if (maxBytes <= 8 * 1024) {
+      return PHOTOSHOP_JPEG_STEPS.filter((s) => s.level <= 8);
+    }
+    return PHOTOSHOP_JPEG_STEPS.filter((s) => s.level <= 10);
+  }
+
   function capExportDimensions(width, height, maxBytes) {
     const longEdge = Math.max(width, height);
     let cap = 4096;
@@ -5705,70 +5866,69 @@ ${lengthBlock}
     };
   }
 
-  async function encodeCanvasJpeg(exportCanvas, quality) {
-    const mime = "image/jpeg";
-    if (typeof exportCanvas.toBlob === "function") {
-      const blob = await new Promise((resolve, reject) => {
-        exportCanvas.toBlob((b) => (b ? resolve(b) : reject(new Error("encode failed"))), mime, quality);
-      });
-      const url = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = () => reject(reader.error);
-        reader.readAsDataURL(blob);
-      });
-      return { url, size: blob.size, quality };
+  function canvasToJpegBlob(exportCanvas, quality) {
+    return new Promise((resolve, reject) => {
+      if (typeof exportCanvas.toBlob !== "function") {
+        try {
+          const url = exportCanvas.toDataURL("image/jpeg", quality);
+          resolve({ blob: dataUrlToBlob(url), url, size: dataUrlByteSize(url), quality });
+        } catch (err) {
+          reject(err);
+        }
+        return;
+      }
+      exportCanvas.toBlob(
+        (blob) => {
+          if (!blob) {
+            reject(new Error("encode failed"));
+            return;
+          }
+          resolve({ blob, size: blob.size, quality });
+        },
+        "image/jpeg",
+        quality,
+      );
+    });
+  }
+
+  async function finalizeExportResult(candidate, width, height) {
+    if (candidate.url) {
+      return { ...candidate, width, height };
     }
-    const url = exportCanvas.toDataURL(mime, quality);
-    return { url, size: dataUrlByteSize(url), quality };
+    const url = URL.createObjectURL(candidate.blob);
+    return {
+      blob: candidate.blob,
+      url,
+      size: candidate.size,
+      quality: candidate.quality,
+      psLevel: candidate.psLevel,
+      width,
+      height,
+      revokeUrl: true,
+    };
   }
 
   async function exportUnderLimit(sourceCanvas, maxBytes) {
     const capped = capExportDimensions(sourceCanvas.width, sourceCanvas.height, maxBytes);
     let width = capped.width;
     let height = capped.height;
-    const pixelCount = width * height;
-    const isSmall = pixelCount <= 120 * 120;
-    const qualitySteps = isSmall ? 5 : 8;
-    const polishStep = isSmall ? 0.012 : 0.006;
-    const maxAttempts = isSmall ? 4 : 6;
+    const steps = getPhotoshopJpegSteps(maxBytes);
+    const maxAttempts = maxBytes <= 8 * 1024 ? 4 : 3;
 
     async function findBestQuality(exportCanvas, w, h) {
-      let lo = 0.2;
-      let hi = 0.92;
-      let best = null;
-
-      for (let i = 0; i < qualitySteps; i += 1) {
-        const quality = (lo + hi) / 2;
-        const candidate = await encodeCanvasJpeg(exportCanvas, quality);
+      for (const step of steps) {
+        const candidate = await canvasToJpegBlob(exportCanvas, step.quality);
         if (candidate.size <= maxBytes) {
-          best = { ...candidate, width: w, height: h };
-          lo = quality;
-        } else {
-          hi = quality;
+          // 高い段階から試すので、初めて収まったものが最良
+          return {
+            ...candidate,
+            width: w,
+            height: h,
+            psLevel: step.level,
+          };
         }
-        if (i % 2 === 1) await yieldToUi();
       }
-
-      if (!best) return null;
-
-      let q = best.quality;
-      let step = 0.04;
-      while (step > polishStep) {
-        const tryQ = Math.min(0.92, q + step);
-        const candidate = await encodeCanvasJpeg(exportCanvas, tryQ);
-        if (candidate.size <= maxBytes) {
-          if (candidate.size >= best.size) {
-            best = { ...candidate, width: w, height: h };
-          }
-          q = tryQ;
-        } else {
-          step /= 2;
-        }
-        await yieldToUi();
-      }
-
-      return best;
+      return null;
     }
 
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
@@ -5788,8 +5948,12 @@ ${lengthBlock}
       exportCtx.drawImage(scaled, 0, 0);
 
       const best = await findBestQuality(exportCanvas, w, h);
-      if (best) return best;
+      if (best) {
+        await yieldToUi();
+        return finalizeExportResult(best, w, h);
+      }
 
+      // 最低段階でも超える場合は解像度を一段下げて再試行
       width *= 0.85;
       height *= 0.85;
       await yieldToUi();
@@ -5805,8 +5969,10 @@ ${lengthBlock}
     exportCtx.fillStyle = "#ffffff";
     exportCtx.fillRect(0, 0, w, h);
     exportCtx.drawImage(scaled, 0, 0);
-    const fallback = await encodeCanvasJpeg(exportCanvas, 0.2);
-    return { ...fallback, width: w, height: h };
+    const fallbackStep = PHOTOSHOP_JPEG_STEPS[PHOTOSHOP_JPEG_STEPS.length - 1];
+    const fallback = await canvasToJpegBlob(exportCanvas, fallbackStep.quality);
+    fallback.psLevel = fallbackStep.level;
+    return finalizeExportResult(fallback, w, h);
   }
 
   const MAX_DOWNLOAD_BYTES = 250 * 1024;
@@ -6013,6 +6179,9 @@ ${lengthBlock}
     link.download = filename;
     link.href = result.url;
     link.click();
+    if (result.revokeUrl && result.url) {
+      setTimeout(() => URL.revokeObjectURL(result.url), 2000);
+    }
   }
 
   async function pickSaveFolder() {
@@ -6069,8 +6238,10 @@ ${lengthBlock}
 
     const fileHandle = await saveDirHandle.getFileHandle(filename, { create: true });
     const writable = await fileHandle.createWritable();
-    await writable.write(dataUrlToBlob(result.url));
+    const payload = result.blob || dataUrlToBlob(result.url);
+    await writable.write(payload);
     await writable.close();
+    if (result.revokeUrl && result.url) URL.revokeObjectURL(result.url);
     return { ok: true, overwritten: exists };
   }
 
@@ -6105,11 +6276,13 @@ ${lengthBlock}
           if (saved.ok) {
             const pathLabel = `${saveDirHandle.name}/${filename}`;
             const actionLabel = saved.overwritten ? "上書き保存しました" : "保存しました";
-            notifySuccess("save", `${actionLabel}（${formatBytes(result.size)}）`, {
+            const qLabel = result.psLevel != null ? `・画質${result.psLevel}` : "";
+            notifySuccess("save", `${actionLabel}（${formatBytes(result.size)}${qLabel}）`, {
               mode: "folder",
               filename,
               path: pathLabel,
               bytes: result.size,
+              psLevel: result.psLevel,
               width: result.width,
               height: result.height,
             });
@@ -6125,10 +6298,12 @@ ${lengthBlock}
 
       triggerDownload(result, filename);
       const type = forceDownload ? "download" : "save";
-      notifySuccess(type, `ダウンロードしました（${formatBytes(result.size)}）`, {
+      const qLabel = result.psLevel != null ? `・画質${result.psLevel}` : "";
+      notifySuccess(type, `ダウンロードしました（${formatBytes(result.size)}${qLabel}）`, {
         mode: "download",
         filename,
         bytes: result.size,
+        psLevel: result.psLevel,
         width: result.width,
         height: result.height,
       });
