@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const APP_VERSION = "33";
+  const APP_VERSION = "35";
 
   const fileInput = document.getElementById("fileInput");
   const fileHint = document.getElementById("fileHint");
@@ -291,7 +291,7 @@
       minH: 50,
       maxBytes: 5 * 1024,
       hint: "50〜90px・5KB以内（外観写真の縮小版）",
-      allowUpscale: false,
+      allowUpscale: true,
     },
     "iri-photo": {
       label: "IRI 物件写真",
@@ -2613,6 +2613,12 @@ ${lengthBlock}
     if (clearPaint) clearSkyPaintForPhoto(getActivePhoto());
   }
 
+  /** baseImageData を直接書き換えたあとに呼ぶ（明るさ等のプレビューキャッシュを捨てる） */
+  function notifyBasePixelsChanged() {
+    skyMaskCache = { key: "", mask: null };
+    litPreviewCache = { source: null, data: null };
+  }
+
   function getLitPreviewImageData() {
     if (!baseImageData) return null;
     if (litPreviewCache.source === baseImageData && litPreviewCache.data) {
@@ -4027,8 +4033,8 @@ ${lengthBlock}
     if (!baseImageData) return;
     const radius = Number(brushSize.value);
     const block = Math.max(4, Number(mosaicSize.value));
-    const w = canvas.width;
-    const h = canvas.height;
+    const w = baseImageData.width;
+    const h = baseImageData.height;
     const data = baseImageData.data;
     const reach = radius + block * 0.5;
     const reach2 = reach * reach;
@@ -4078,6 +4084,7 @@ ${lengthBlock}
         }
       }
     }
+    notifyBasePixelsChanged();
   }
 
   function restoreAt(x, y) {
@@ -4108,6 +4115,7 @@ ${lengthBlock}
         dst[i + 3] = src[i + 3];
       }
     }
+    notifyBasePixelsChanged();
     return true;
   }
 
@@ -4153,6 +4161,7 @@ ${lengthBlock}
         }
       }
     }
+    notifyBasePixelsChanged();
   }
 
   function expandBox(box, padRatio, imgW, imgH) {
@@ -5539,9 +5548,12 @@ ${lengthBlock}
     }
     if (exportPresetHint) {
       const preset = EXPORT_PRESETS[activeExportPreset];
-      exportPresetHint.textContent = preset
-        ? `IRI公式ガイドライン準拠: ${preset.hint}（保存時は画質を上げ、250KB近くまで使います）`
-        : "幅・高さを手動で指定しています。";
+      if (preset) {
+        const limitKb = Math.round(preset.maxBytes / 1024);
+        exportPresetHint.textContent = `IRI公式ガイドライン準拠: ${preset.hint}（保存時は画質を上げ、${limitKb}KB近くまで使います）`;
+      } else {
+        exportPresetHint.textContent = "幅・高さを手動で指定しています。";
+      }
     }
     updateBatchResizeHint();
   }
@@ -6359,9 +6371,8 @@ ${lengthBlock}
 
   /**
    * PhotoShop風の画質段階で JPEG を調整する。
-   * 上限以内で、できるだけ上限に近い（＝高い画質の）結果を返す。
+   * 見出写真・物件写真とも同じ手順: 高画質から試し、上限近くまで詰める。
    */
-  // browser quality は PhotoShop JPEG 品質の近似（物件写真向けに高め）
   const PHOTOSHOP_JPEG_STEPS = [
     { level: 12, quality: 0.97 },
     { level: 11, quality: 0.94 },
@@ -6375,18 +6386,15 @@ ${lengthBlock}
     { level: 3, quality: 0.38 },
   ];
 
-  function getPhotoshopJpegSteps(maxBytes) {
-    // 見出写真(5KB)は低めから。物件写真(250KB)は 12 から下げて上限近くを使う。
-    if (maxBytes <= 8 * 1024) {
-      return PHOTOSHOP_JPEG_STEPS.filter((s) => s.level <= 8);
-    }
+  function getPhotoshopJpegSteps(_maxBytes) {
     return PHOTOSHOP_JPEG_STEPS.slice();
   }
 
   function capExportDimensions(width, height, maxBytes) {
     const longEdge = Math.max(width, height);
     let cap = 4096;
-    if (maxBytes <= 8 * 1024) cap = 120;
+    // IRI枠に合わせる（見出90 / 物件800）。既に resolveTargetSize 済みでも保険。
+    if (maxBytes <= 8 * 1024) cap = 90;
     else if (maxBytes <= 300 * 1024) cap = 800;
     if (longEdge <= cap) return { width, height };
     const scale = cap / longEdge;
@@ -6443,9 +6451,9 @@ ${lengthBlock}
     let width = capped.width;
     let height = capped.height;
     const steps = getPhotoshopJpegSteps(maxBytes);
-    const maxAttempts = maxBytes <= 8 * 1024 ? 4 : 3;
-    // 物件写真は上限の約88%以上を目標（小さすぎ防止）
-    const fillTarget = maxBytes <= 8 * 1024 ? 0 : Math.floor(maxBytes * 0.88);
+    const maxAttempts = 4;
+    // 見出(5KB)・物件(250KB)とも上限の約88%以上を目標
+    const fillTarget = Math.floor(maxBytes * 0.88);
 
     async function findBestQuality(exportCanvas, w, h) {
       let best = null;
