@@ -845,6 +845,19 @@ input {
   margin-bottom: 1rem;
 }
 
+.sky-brush-mode {
+  margin-bottom: 0.55rem;
+}
+
+#canvas.tool-sky {
+  cursor: none;
+}
+
+.brush-cursor.is-sky-erase {
+  border-color: rgba(180, 60, 60, 0.9);
+  background: rgba(180, 60, 60, 0.12);
+}
+
 .sky-section {
   display: flex;
   flex-direction: column;

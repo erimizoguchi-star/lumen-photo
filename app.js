@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const APP_VERSION = "28";
+  const APP_VERSION = "33";
 
   const fileInput = document.getElementById("fileInput");
   const fileHint = document.getElementById("fileHint");
@@ -114,6 +114,10 @@
   const resetSky = document.getElementById("resetSky");
   const skyApplyAllBtn = document.getElementById("skyApplyAllBtn");
   const skyPresetGrid = document.getElementById("skyPresetGrid");
+  const skyBrushModePicker = document.getElementById("skyBrushModePicker");
+  const skyBrushSize = document.getElementById("skyBrushSize");
+  const skyBrushSizeLabel = document.getElementById("skyBrushSizeLabel");
+  const skyClearPaintBtn = document.getElementById("skyClearPaintBtn");
 
   const cropAspect = document.getElementById("cropAspect");
   const resetCrop = document.getElementById("resetCrop");
@@ -212,7 +216,9 @@
   let activeTool = "resize";
   let activePanelTab = "photos";
   let hideBrushMode = "mosaic";
+  let skyBrushMode = "add";
   let painting = false;
+  let skyPainting = false;
   let lastPoint = null;
   /** 1 = ステージに収まるサイズ */
   let viewZoom = 1;
@@ -272,7 +278,7 @@
   const EXPORT_PRESET_STORAGE = "lumen-export-preset";
   const IRI_GUIDELINE_URL =
     "https://www.iri.ne.jp/kensaku/member/info_supo/images/Guideline.pdf";
-  const DEFAULT_EXPORT_PRESET = "iri-thumb";
+  const DEFAULT_EXPORT_PRESET = "iri-photo";
 
   /** @type {Record<string, { label: string, kind: string, maxW: number, maxH: number, minW: number, minH: number, maxBytes: number, hint: string, allowUpscale?: boolean }>} */
   const EXPORT_PRESETS = {
@@ -302,75 +308,103 @@
 
   let activeExportPreset = DEFAULT_EXPORT_PRESET;
 
-  /** @type {Record<string, { name: string, zenith: {r:number,g:number,b:number}, horizon: {r:number,g:number,b:number}, glow: {r:number,g:number,b:number,strength:number}|null, clouds: number, warmth: number }>} */
+  /** @type {Record<string, { name: string, zenith: {r:number,g:number,b:number}, horizon: {r:number,g:number,b:number}, haze: {r:number,g:number,b:number,strength:number}|null, glow: {r:number,g:number,b:number,strength:number}|null, clouds: number, warmth: number }>} */
   const SKY_PRESETS = {
+    "natural-blue": {
+      name: "自然な青空",
+      zenith: { r: 48, g: 125, b: 208 },
+      horizon: { r: 162, g: 205, b: 236 },
+      haze: { r: 215, g: 230, b: 242, strength: 0.42 },
+      glow: null,
+      clouds: 0.48,
+      warmth: 0.06,
+    },
+    "cloudy-blue": {
+      name: "雲のある青空",
+      zenith: { r: 55, g: 128, b: 205 },
+      horizon: { r: 170, g: 208, b: 236 },
+      haze: { r: 220, g: 232, b: 244, strength: 0.4 },
+      glow: null,
+      clouds: 0.78,
+      warmth: 0.05,
+    },
     "clear-blue": {
       name: "晴れ",
-      zenith: { r: 42, g: 118, b: 198 },
-      horizon: { r: 145, g: 192, b: 236 },
+      zenith: { r: 38, g: 112, b: 200 },
+      horizon: { r: 150, g: 196, b: 238 },
+      haze: { r: 210, g: 228, b: 245, strength: 0.32 },
       glow: null,
-      clouds: 0.4,
-      warmth: 0,
+      clouds: 0.22,
+      warmth: 0.04,
     },
     "deep-blue": {
-      name: "青空",
-      zenith: { r: 25, g: 85, b: 175 },
-      horizon: { r: 95, g: 165, b: 225 },
+      name: "深い青",
+      zenith: { r: 22, g: 82, b: 172 },
+      horizon: { r: 100, g: 168, b: 228 },
+      haze: { r: 175, g: 205, b: 235, strength: 0.28 },
       glow: null,
-      clouds: 0.25,
-      warmth: -0.1,
+      clouds: 0.12,
+      warmth: -0.08,
     },
     "soft-blue": {
       name: "淡い青",
-      zenith: { r: 120, g: 175, b: 215 },
-      horizon: { r: 190, g: 215, b: 240 },
+      zenith: { r: 110, g: 170, b: 218 },
+      horizon: { r: 188, g: 218, b: 240 },
+      haze: { r: 230, g: 238, b: 246, strength: 0.38 },
       glow: null,
-      clouds: 0.5,
-      warmth: 0,
+      clouds: 0.22,
+      warmth: 0.02,
     },
     "sunset": {
       name: "夕焼け",
       zenith: { r: 35, g: 55, b: 120 },
       horizon: { r: 245, g: 145, b: 75 },
+      haze: { r: 255, g: 190, b: 140, strength: 0.35 },
       glow: { r: 255, g: 110, b: 60, strength: 0.55 },
-      clouds: 0.35,
+      clouds: 0.28,
       warmth: 0.8,
     },
     "twilight": {
       name: "夕暮れ",
       zenith: { r: 25, g: 35, b: 85 },
       horizon: { r: 180, g: 100, b: 130 },
+      haze: { r: 210, g: 150, b: 160, strength: 0.3 },
       glow: { r: 220, g: 90, b: 100, strength: 0.4 },
-      clouds: 0.3,
+      clouds: 0.22,
       warmth: 0.5,
     },
     "dawn": {
       name: "朝焼け",
       zenith: { r: 85, g: 125, b: 175 },
       horizon: { r: 255, g: 185, b: 140 },
+      haze: { r: 255, g: 210, b: 180, strength: 0.35 },
       glow: { r: 255, g: 160, b: 100, strength: 0.45 },
-      clouds: 0.35,
+      clouds: 0.25,
       warmth: 0.6,
     },
     "overcast": {
       name: "曇り",
       zenith: { r: 145, g: 158, b: 170 },
       horizon: { r: 195, g: 200, b: 208 },
+      haze: { r: 220, g: 224, b: 228, strength: 0.4 },
       glow: null,
-      clouds: 0.7,
+      clouds: 0.55,
       warmth: -0.15,
     },
     "storm": {
       name: "嵐",
       zenith: { r: 45, g: 55, b: 72 },
       horizon: { r: 105, g: 115, b: 128 },
+      haze: { r: 140, g: 148, b: 158, strength: 0.25 },
       glow: null,
-      clouds: 0.85,
+      clouds: 0.7,
       warmth: -0.3,
     },
   };
 
   const SKY_PRESET_ORDER = [
+    "natural-blue",
+    "cloudy-blue",
     "clear-blue",
     "deep-blue",
     "soft-blue",
@@ -381,7 +415,7 @@
     "storm",
   ];
 
-  const DEFAULT_SKY_PRESET = "clear-blue";
+  const DEFAULT_SKY_PRESET = "natural-blue";
 
   const PROPERTY_TYPES = {
     mansion: {
@@ -2130,7 +2164,7 @@ ${lengthBlock}
     skyRange.value = "55";
     skyEdgeFade.value = "50";
     skyForeground.value = "0";
-    skyKeepClouds.checked = true;
+    skyKeepClouds.checked = false;
     setActiveSkyPresetId(DEFAULT_SKY_PRESET);
     restoreWatermarkPreference();
     restoreOverwritePreference();
@@ -2167,7 +2201,7 @@ ${lengthBlock}
     skyRange.value = photo.skyRange || "55";
     skyEdgeFade.value = photo.skyEdgeFade ?? "50";
     skyForeground.value = photo.skyForeground || "0";
-    skyKeepClouds.checked = photo.skyKeepClouds !== false;
+    skyKeepClouds.checked = photo.skyKeepClouds === true;
     if (watermarkEnabled) {
       watermarkEnabled.checked = photo.watermarkEnabled !== false;
     }
@@ -2385,7 +2419,8 @@ ${lengthBlock}
             skyRange: "55",
             skyEdgeFade: "50",
             skyForeground: "0",
-            skyKeepClouds: true,
+            skyKeepClouds: false,
+            skyPaint: null,
             watermarkEnabled: isWatermarkEnabled(),
             watermarkPosition: getWatermarkPositionFromUi(),
             captionCategory: "",
@@ -2479,7 +2514,7 @@ ${lengthBlock}
   }
 
   function updatePanCursor() {
-    const interactive = activeTool === "hide" || activeTool === "crop";
+    const interactive = activeTool === "hide" || activeTool === "crop" || activeTool === "sky";
     const canPan = panMode || spaceHeld || !interactive;
     canvasWrap.classList.toggle("is-panning", canPan);
   }
@@ -2539,7 +2574,7 @@ ${lengthBlock}
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
     baseImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    invalidateSkyCaches();
+    invalidateSkyCaches({ clearPaint: true });
     aspectRatio = canvas.width / canvas.height;
     resizeWidth.value = String(canvas.width);
     resizeHeight.value = String(canvas.height);
@@ -2572,9 +2607,10 @@ ${lengthBlock}
     return activeSkyPresetId;
   }
 
-  function invalidateSkyCaches() {
+  function invalidateSkyCaches({ clearPaint = false } = {}) {
     skyMaskCache = { key: "", mask: null };
     litPreviewCache = { source: null, data: null };
+    if (clearPaint) clearSkyPaintForPhoto(getActivePhoto());
   }
 
   function getLitPreviewImageData() {
@@ -2630,7 +2666,7 @@ ${lengthBlock}
       range: Number(range || 55) / 100,
       edgeFade: Number(edgeFade ?? 50) / 100,
       foreground: Number(foreground || 0) / 100,
-      keepClouds: keepClouds !== false,
+      keepClouds: keepClouds === true,
     };
   }
 
@@ -2670,36 +2706,72 @@ ${lengthBlock}
     if (lum < 0.52) return false;
 
     const isBlueSky = b >= r - 2 && b >= g - 8 && b > 95 && sat >= 0.06 && sat <= 0.55;
-    const minLum = 0.62 + yRatio * 0.16;
-    const maxSat = 0.16 - yRatio * 0.08;
+    const minLum = 0.58 + yRatio * 0.14;
+    const maxSat = 0.18 - yRatio * 0.08;
     const isOvercast =
       lum >= minLum &&
-      sat <= Math.max(0.06, maxSat) &&
-      b + 6 >= g &&
-      g + 10 >= r &&
-      b + 4 >= r &&
-      Math.abs(r - g) < 22 &&
-      Math.abs(g - b) < 24;
+      sat <= Math.max(0.07, maxSat) &&
+      b + 8 >= g &&
+      g + 12 >= r &&
+      b + 6 >= r &&
+      Math.abs(r - g) < 26 &&
+      Math.abs(g - b) < 28;
     const isPaleSky =
-      lum > 0.8 &&
-      sat < 0.08 &&
-      b + 4 >= r &&
-      Math.abs(r - g) < 16 &&
-      Math.abs(g - b) < 16;
+      lum > 0.76 &&
+      sat < 0.1 &&
+      b + 6 >= r &&
+      Math.abs(r - g) < 20 &&
+      Math.abs(g - b) < 20;
 
     if (isBlueSky || isOvercast || isPaleSky) return true;
     return false;
   }
 
-  /** 置き換え用の新しい空（プリセット＋調整） */
+  /** 横長の積雲っぽい密度（0〜1） */
+  function sampleSkyCloudDensity(xRatio, yRatio, t, preview) {
+    let n1;
+    let n2;
+    let n3;
+    let n4;
+    if (preview) {
+      n1 = hashNoise(Math.floor(xRatio * 28), Math.floor(yRatio * 14));
+      n2 = hashNoise(Math.floor(xRatio * 56 + 2), Math.floor(yRatio * 30 + 1));
+      n3 = hashNoise(Math.floor(xRatio * 12 + 5), Math.floor(yRatio * 8 + 3));
+      n4 = hashNoise(Math.floor(xRatio * 90 + 9), Math.floor(yRatio * 48 + 4));
+    } else {
+      // 横方向に伸ばして自然な雲の帯にする
+      n1 = softNoise(xRatio * 3.6, yRatio * 2.2);
+      n2 = softNoise(xRatio * 7.4 + 2.3, yRatio * 4.6 + 1.1);
+      n3 = softNoise(xRatio * 1.6 + 8.1, yRatio * 1.15 + 3.4);
+      n4 = softNoise(xRatio * 14.5 + 4.7, yRatio * 9.2 + 2.8);
+    }
+    const base = n1 * 0.45 + n2 * 0.3 + n3 * 0.15 + n4 * 0.1;
+    // 地平寄りのほうが雲が出やすい
+    const band = 0.42 + t * 0.12;
+    let cloud = Math.pow(Math.max(0, base - band), 1.25);
+    // やわらかい輪郭
+    cloud = cloud * cloud * (3 - 2 * cloud);
+    return clamp(cloud, 0, 1);
+  }
+
+  /** 置き換え用の新しい空（大気散乱っぽいグラデ＋薄い霞） */
   function sampleReplacementSky(xRatio, yRatio, opts) {
     const { preset, range, brightness, temperature, scale, shift } = opts;
     const span = Math.max(0.05, range * scale);
     const t = clamp((yRatio - shift) / span, 0, 1);
-    const eased = t * t * (3 - 2 * t);
+    // 天頂の青を長めに保ち、地平近くで明るくする
+    const eased = Math.pow(t, 0.78);
     let r = preset.zenith.r * (1 - eased) + preset.horizon.r * eased;
     let g = preset.zenith.g * (1 - eased) + preset.horizon.g * eased;
     let b = preset.zenith.b * (1 - eased) + preset.horizon.b * eased;
+
+    if (preset.haze) {
+      const hazeT = Math.pow(t, 1.35);
+      const hs = preset.haze.strength * hazeT;
+      r = r * (1 - hs) + preset.haze.r * hs;
+      g = g * (1 - hs) + preset.haze.g * hs;
+      b = b * (1 - hs) + preset.haze.b * hs;
+    }
 
     if (preset.glow) {
       const glowT = Math.pow(1 - t, 1.6);
@@ -2708,6 +2780,15 @@ ${lengthBlock}
       g = g * (1 - gs) + preset.glow.g * gs;
       b = b * (1 - gs) + preset.glow.b * gs;
     }
+
+    // わずかな左右の色むら（写真っぽさ）
+    const side =
+      opts.preview
+        ? (hashNoise(Math.floor(xRatio * 24), Math.floor(yRatio * 10)) - 0.5)
+        : (softNoise(xRatio * 2.4, yRatio * 1.1) - 0.5);
+    r += side * 4;
+    g += side * 2;
+    b += side * 6;
 
     const warm = preset.warmth + temperature / 120;
     r += warm * 28;
@@ -2719,20 +2800,18 @@ ${lengthBlock}
     b += brightness * 1.8;
 
     if (preset.clouds > 0) {
-      let n1;
-      let n2;
-      if (opts.preview) {
-        n1 = hashNoise(Math.floor(xRatio * 48), Math.floor(yRatio * 32));
-        n2 = hashNoise(Math.floor(xRatio * 96 + 3), Math.floor(yRatio * 64 + 2));
-      } else {
-        n1 = softNoise(xRatio * 6.5, yRatio * 4.2);
-        n2 = softNoise(xRatio * 14 + 3.1, yRatio * 9.5 + 1.7);
+      const cloud = sampleSkyCloudDensity(xRatio, yRatio, t, opts.preview);
+      const amount = cloud * preset.clouds * (0.34 + t * 0.22);
+      if (amount > 0.01) {
+        // 明るい雲＋わずかな影で立体感
+        const shade = cloud * preset.clouds * 0.12;
+        const cr = 245 - shade * 18;
+        const cg = 248 - shade * 14;
+        const cb = 252 - shade * 8;
+        r = r * (1 - amount) + cr * amount;
+        g = g * (1 - amount) + cg * amount;
+        b = b * (1 - amount) + cb * amount;
       }
-      const cloud = Math.pow(Math.max(0, n1 * 0.65 + n2 * 0.35 - 0.42), 1.35);
-      const amount = cloud * preset.clouds * (0.22 + t * 0.2);
-      r = r * (1 - amount) + 248 * amount;
-      g = g * (1 - amount) + 250 * amount;
-      b = b * (1 - amount) + 252 * amount;
     }
 
     return {
@@ -2760,8 +2839,20 @@ ${lengthBlock}
     ].join(":");
   }
 
+  function isWireLikePixel(r, g, b) {
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const sat = max === 0 ? 0 : (max - min) / max;
+    const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    // 電線・金網など: 暗め／低彩度。木や壁の強い色は除外
+    if (g > r + 20 && g > b + 14 && sat > 0.14) return false;
+    if (r > g + 30 && r > b + 25 && sat > 0.22) return false;
+    return lum < 0.62 && sat < 0.28;
+  }
+
   /**
-   * 画像上端から連結した空だけをマスク化（建物の同系色を除外）
+   * 画像上端から連結した空だけをマスク化。
+   * 電線のような細い障害は飛び越えて、囲まれた空も取り込む。
    * 戻り値: Float32Array 0〜1（境界はぼかし）
    */
   function buildConnectedSkyMask(imageData, range, edgeFade) {
@@ -2784,13 +2875,53 @@ ${lengthBlock}
       }
     }
 
+    // 電線ギャップを渡れる通路（置き換え対象にはしない）
+    const passable = new Uint8Array(w * h);
+    const gapMax = Math.max(2, Math.min(6, Math.round(Math.min(w, h) * 0.005)));
+    for (let y = 0; y <= maxY; y += 1) {
+      for (let x = 0; x < w; x += 1) {
+        const idx = y * w + x;
+        if (candidate[idx]) {
+          passable[idx] = 1;
+          continue;
+        }
+        const i = idx * 4;
+        if (!isWireLikePixel(src[i], src[i + 1], src[i + 2])) continue;
+        let skyLR = false;
+        let skyTB = false;
+        for (let d = 1; d <= gapMax; d += 1) {
+          if (x - d >= 0 && candidate[y * w + (x - d)]) {
+            for (let e = 1; e <= gapMax; e += 1) {
+              if (x + e < w && candidate[y * w + (x + e)]) {
+                skyLR = true;
+                break;
+              }
+            }
+          }
+          if (skyLR) break;
+        }
+        for (let d = 1; d <= gapMax; d += 1) {
+          if (y - d >= 0 && candidate[(y - d) * w + x]) {
+            for (let e = 1; e <= gapMax; e += 1) {
+              if (y + e <= maxY && candidate[(y + e) * w + x]) {
+                skyTB = true;
+                break;
+              }
+            }
+          }
+          if (skyTB) break;
+        }
+        if (skyLR || skyTB) passable[idx] = 2;
+      }
+    }
+
     const hard = new Uint8Array(w * h);
     const visited = new Uint8Array(w * h);
     const queue = new Int32Array(w * h);
     let qh = 0;
     let qt = 0;
 
-    const seedRows = Math.max(3, Math.floor(h * 0.05));
+    const seedRows = Math.max(3, Math.floor(h * 0.06));
     for (let y = 0; y < seedRows; y += 1) {
       for (let x = 0; x < w; x += 1) {
         const idx = y * w + x;
@@ -2799,6 +2930,36 @@ ${lengthBlock}
         hard[idx] = 1;
         queue[qt++] = idx;
       }
+    }
+
+    const dirs = [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+      [1, 1],
+      [-1, 1],
+      [1, -1],
+      [-1, -1],
+    ];
+
+    function tryVisitSky(nidx, pr, pg, pb, plum, downward) {
+      if (visited[nidx] || !candidate[nidx]) return;
+      const ni = nidx * 4;
+      const nr = src[ni];
+      const ng = src[ni + 1];
+      const nb = src[ni + 2];
+      const nlum = 0.299 * nr + 0.587 * ng + 0.114 * nb;
+      const colorDist = Math.abs(nr - pr) + Math.abs(ng - pg) + Math.abs(nb - pb);
+      if (Math.abs(nlum - plum) > 26) return;
+      if (colorDist > 64) return;
+      if (downward) {
+        if (nlum < plum - 12) return;
+        if (colorDist > 40) return;
+      }
+      visited[nidx] = 1;
+      hard[nidx] = 1;
+      queue[qt++] = nidx;
     }
 
     while (qh < qt) {
@@ -2811,37 +2972,62 @@ ${lengthBlock}
       const pb = src[pi + 2];
       const plum = 0.299 * pr + 0.587 * pg + 0.114 * pb;
 
-      const neigh = [
-        [1, 0],
-        [-1, 0],
-        [0, 1],
-        [0, -1],
-      ];
-      for (let n = 0; n < 4; n += 1) {
-        const nx = x + neigh[n][0];
-        const ny = y + neigh[n][1];
-        if (nx < 0 || ny < 0 || nx >= w || ny > maxY) continue;
-        const nidx = ny * w + nx;
-        if (visited[nidx] || !candidate[nidx]) continue;
-
-        const ni = nidx * 4;
-        const nr = src[ni];
-        const ng = src[ni + 1];
-        const nb = src[ni + 2];
-        const nlum = 0.299 * nr + 0.587 * ng + 0.114 * nb;
-        const colorDist = Math.abs(nr - pr) + Math.abs(ng - pg) + Math.abs(nb - pb);
-        if (Math.abs(nlum - plum) > 18) continue;
-        if (colorDist > 48) continue;
-        if (neigh[n][1] > 0) {
-          if (nlum < plum - 6) continue;
-          if (colorDist > 28) continue;
-          if (nb + 2 < nr) continue;
+      for (let n = 0; n < dirs.length; n += 1) {
+        const dx = dirs[n][0];
+        const dy = dirs[n][1];
+        // 隣接、および電線ギャップを越えた先の空
+        for (let step = 1; step <= gapMax; step += 1) {
+          const nx = x + dx * step;
+          const ny = y + dy * step;
+          if (nx < 0 || ny < 0 || nx >= w || ny > maxY) break;
+          const nidx = ny * w + nx;
+          if (step > 1) {
+            // 間が電線通路でつながっているときだけジャンプ
+            let bridged = true;
+            for (let s = 1; s < step; s += 1) {
+              const bx = x + dx * s;
+              const by = y + dy * s;
+              const bidx = by * w + bx;
+              if (passable[bidx] !== 2 && !candidate[bidx]) {
+                bridged = false;
+                break;
+              }
+            }
+            if (!bridged) break;
+          }
+          if (candidate[nidx]) {
+            tryVisitSky(nidx, pr, pg, pb, plum, dy > 0);
+            break;
+          }
+          if (passable[nidx] !== 2) break;
         }
-
-        visited[nidx] = 1;
-        hard[nidx] = 1;
-        queue[qt++] = nidx;
       }
+    }
+
+    // 電線で囲まれて取り残された空パッチを近傍から回収
+    for (let pass = 0; pass < 5; pass += 1) {
+      let added = 0;
+      for (let y = 0; y <= maxY; y += 1) {
+        for (let x = 0; x < w; x += 1) {
+          const idx = y * w + x;
+          if (!candidate[idx] || hard[idx]) continue;
+          let near = 0;
+          for (let dy = -2; dy <= 2; dy += 1) {
+            for (let dx = -2; dx <= 2; dx += 1) {
+              if (!dx && !dy) continue;
+              const nx = x + dx;
+              const ny = y + dy;
+              if (nx < 0 || ny < 0 || nx >= w || ny > maxY) continue;
+              if (hard[ny * w + nx]) near += 1;
+            }
+          }
+          if (near >= 5) {
+            hard[idx] = 1;
+            added += 1;
+          }
+        }
+      }
+      if (!added) break;
     }
 
     const radius = Math.max(1, Math.round(Math.min(w, h) * 0.003 * (1 + edgeFade * 1.8)));
@@ -2897,28 +3083,40 @@ ${lengthBlock}
       return applyForegroundLight(origR, origG, origB, yRatio, maskValue, opts);
     }
 
+    // 境界以外は元の色を残さず置き換える（色味変更ではなく差し替え）
     const m = clamp(maskValue * strength, 0, 1);
     let sky = sampleReplacementSky(xRatio, yRatio, opts);
+    const origLum = (0.299 * origR + 0.587 * origG + 0.114 * origB) / 255;
+    const skyLum = (0.299 * sky.r + 0.587 * sky.g + 0.114 * sky.b) / 255;
+
+    // 明るさだけ軽く合わせて、貼り付け感を減らす
+    const adapt = 0.14;
+    const lumRatio = clamp(origLum / Math.max(0.05, skyLum), 0.88, 1.12);
+    sky = {
+      r: clamp(sky.r * (1 - adapt + adapt * lumRatio), 0, 255),
+      g: clamp(sky.g * (1 - adapt + adapt * lumRatio), 0, 255),
+      b: clamp(sky.b * (1 - adapt + adapt * lumRatio), 0, 255),
+    };
+
     if (keepClouds) {
       const maxC = Math.max(origR, origG, origB);
       const minC = Math.min(origR, origG, origB);
       const sat = maxC ? (maxC - minC) / maxC : 0;
-      const origLum = (0.299 * origR + 0.587 * origG + 0.114 * origB) / 255;
-      const cloud = clamp((origLum - 0.48) / 0.42, 0, 1) * clamp(1 - sat * 2.2, 0, 1);
-      const white = 248;
+      // 白飛びさせず、元の濃淡を青空の上に乗せる
+      const detail = (origLum - 0.68) * 55;
       sky = {
-        r: sky.r * (1 - cloud) + white * cloud,
-        g: sky.g * (1 - cloud) + 250 * cloud,
-        b: sky.b * (1 - cloud) + 252 * cloud,
+        r: clamp(sky.r + detail * 0.55, 0, 255),
+        g: clamp(sky.g + detail * 0.6, 0, 255),
+        b: clamp(sky.b + detail * 0.7, 0, 255),
       };
-      const skyLum = 0.299 * sky.r + 0.587 * sky.g + 0.114 * sky.b;
-      const lumRatio = clamp((origLum * 255) / Math.max(1, skyLum), 0.75, 1.25);
-      const preserve = cloud * 0.4;
-      sky = {
-        r: clamp(sky.r * (1 - preserve) + sky.r * lumRatio * preserve, 0, 255),
-        g: clamp(sky.g * (1 - preserve) + sky.g * lumRatio * preserve, 0, 255),
-        b: clamp(sky.b * (1 - preserve) + sky.b * lumRatio * preserve, 0, 255),
-      };
+      const cloud = clamp((origLum - 0.74) / 0.24, 0, 1) * clamp(1 - sat * 2.8, 0, 1) * 0.28;
+      if (cloud > 0) {
+        sky = {
+          r: sky.r * (1 - cloud) + 228 * cloud,
+          g: sky.g * (1 - cloud) + 236 * cloud,
+          b: sky.b * (1 - cloud) + 246 * cloud,
+        };
+      }
     }
 
     const blended = {
@@ -2973,15 +3171,132 @@ ${lengthBlock}
     });
   }
 
-  function processLitPixels(imageData, dst, bright, contrastVal, skyOpts) {
+  function clearSkyPaintForPhoto(photo) {
+    if (!photo) return;
+    photo.skyPaint = null;
+  }
+
+  function ensureSkyPaint(photo, w, h) {
+    if (!photo) return null;
+    if (!photo.skyPaint || photo.skyPaint.w !== w || photo.skyPaint.h !== h) {
+      photo.skyPaint = { w, h, data: new Float32Array(w * h) };
+    }
+    return photo.skyPaint;
+  }
+
+  function scaleFloatMask(src, srcW, srcH, dstW, dstH) {
+    if (!src) return null;
+    if (srcW === dstW && srcH === dstH) return src;
+    const out = new Float32Array(dstW * dstH);
+    for (let y = 0; y < dstH; y += 1) {
+      const sy = Math.min(srcH - 1, Math.floor(((y + 0.5) * srcH) / dstH));
+      for (let x = 0; x < dstW; x += 1) {
+        const sx = Math.min(srcW - 1, Math.floor(((x + 0.5) * srcW) / dstW));
+        out[y * dstW + x] = src[sy * srcW + sx];
+      }
+    }
+    return out;
+  }
+
+  function resolveSkyPaintMask(photo, targetW, targetH) {
+    if (!photo?.skyPaint?.data) return null;
+    return scaleFloatMask(photo.skyPaint.data, photo.skyPaint.w, photo.skyPaint.h, targetW, targetH);
+  }
+
+  function combineSkyMasks(autoMask, paintMask) {
+    if (!paintMask) return autoMask;
+    if (!autoMask) return paintMask;
+    const out = new Float32Array(autoMask.length);
+    for (let i = 0; i < autoMask.length; i += 1) {
+      const a = autoMask[i];
+      const p = paintMask[i];
+      out[i] = a > p ? a : p;
+    }
+    return out;
+  }
+
+  function getSkyMaskForImage(imageData, skyOpts, photo) {
+    if (!(Number(skyOpts?.strength) > 0) && !photo?.skyPaint?.data) return null;
+    const auto =
+      Number(skyOpts?.strength) > 0
+        ? buildConnectedSkyMask(imageData, skyOpts.range, skyOpts.edgeFade)
+        : null;
+    const paint = resolveSkyPaintMask(photo, imageData.width, imageData.height);
+    if (!auto && !paint) return null;
+    if (!auto) return paint;
+    return combineSkyMasks(auto, paint);
+  }
+
+  function paintSkyAt(x, y) {
+    if (!baseImageData) return;
+    const photo = getActivePhoto();
+    if (!photo) return;
+    const w = baseImageData.width;
+    const h = baseImageData.height;
+    const paint = ensureSkyPaint(photo, w, h);
+    if (!paint) return;
+    const data = paint.data;
+    const radius = Math.max(4, Number(skyBrushSize?.value || 56));
+    const erase = skyBrushMode === "erase";
+    const soft = Math.max(1, radius * 0.65);
+    const x0 = Math.max(0, Math.floor(x - radius));
+    const y0 = Math.max(0, Math.floor(y - radius));
+    const x1 = Math.min(w - 1, Math.ceil(x + radius));
+    const y1 = Math.min(h - 1, Math.ceil(y + radius));
+    const r2 = radius * radius;
+
+    for (let py = y0; py <= y1; py += 1) {
+      for (let px = x0; px <= x1; px += 1) {
+        const dx = px - x;
+        const dy = py - y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 > r2) continue;
+        const d = Math.sqrt(d2);
+        let falloff = 1 - d / radius;
+        falloff = falloff * falloff * (3 - 2 * falloff);
+        // 外側をやわらかく
+        if (d > soft) falloff *= 1 - (d - soft) / Math.max(0.001, radius - soft);
+        falloff = clamp(falloff, 0, 1);
+        const idx = py * w + px;
+        if (erase) data[idx] = Math.max(0, data[idx] - falloff);
+        else data[idx] = Math.max(data[idx], falloff);
+      }
+    }
+  }
+
+  function strokeSkyBrush(from, to) {
+    const radius = Math.max(4, Number(skyBrushSize?.value || 56));
+    const step = Math.max(3, radius * 0.35);
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const dist = Math.hypot(dx, dy) || 1;
+    const n = Math.max(1, Math.ceil(dist / step));
+    for (let i = 0; i <= n; i += 1) {
+      const t = i / n;
+      paintSkyAt(from.x + dx * t, from.y + dy * t);
+    }
+  }
+
+  function hasSkyPaint(photo) {
+    if (!photo?.skyPaint?.data) return false;
+    const data = photo.skyPaint.data;
+    for (let i = 0; i < data.length; i += 16) {
+      if (data[i] > 0.02) return true;
+    }
+    return false;
+  }
+
+  function processLitPixels(imageData, dst, bright, contrastVal, skyOpts, photo = null) {
+    const targetPhoto = photo || getActivePhoto();
     const w = imageData.width;
     const h = imageData.height;
     const src = imageData.data;
     const cFactor = (259 * (contrastVal + 255)) / (255 * (259 - contrastVal));
-    const skyMask =
-      skyOpts.strength > 0
-        ? buildConnectedSkyMask(imageData, skyOpts.range, skyOpts.edgeFade)
-        : null;
+    const activeSkyOpts =
+      hasSkyPaint(targetPhoto) && !(Number(skyOpts.strength) > 0)
+        ? { ...skyOpts, strength: 1 }
+        : skyOpts;
+    const skyMask = getSkyMaskForImage(imageData, activeSkyOpts, targetPhoto);
 
     for (let i = 0; i < src.length; i += 4) {
       let r = src[i];
@@ -2998,7 +3313,7 @@ ${lengthBlock}
         const pix = i / 4;
         const py = Math.floor(pix / w);
         const px = pix % w;
-        const out = blendSkyPixel(r, g, b, py / h, px / w, skyMask[pix], skyOpts);
+        const out = blendSkyPixel(r, g, b, py / h, px / w, skyMask[pix], activeSkyOpts);
         r = out.r;
         g = out.g;
         b = out.b;
@@ -3018,15 +3333,16 @@ ${lengthBlock}
     }
   }
 
-  async function processLitPixelsAsync(imageData, dst, bright, contrastVal, skyOpts) {
+  async function processLitPixelsAsync(imageData, dst, bright, contrastVal, skyOpts, photo = null) {
     const w = imageData.width;
     const h = imageData.height;
     const src = imageData.data;
     const cFactor = (259 * (contrastVal + 255)) / (255 * (259 - contrastVal));
-    const skyMask =
-      skyOpts.strength > 0
-        ? buildConnectedSkyMask(imageData, skyOpts.range, skyOpts.edgeFade)
-        : null;
+    const activeSkyOpts =
+      hasSkyPaint(photo) && !(Number(skyOpts.strength) > 0)
+        ? { ...skyOpts, strength: 1 }
+        : skyOpts;
+    const skyMask = getSkyMaskForImage(imageData, activeSkyOpts, photo);
     await yieldToUi();
 
     const rowStride = Math.max(24, Math.floor(180000 / Math.max(1, w)));
@@ -3047,7 +3363,7 @@ ${lengthBlock}
 
           if (skyMask) {
             const pix = y * w + x;
-            const out = blendSkyPixel(r, g, b, y / h, x / w, skyMask[pix], skyOpts);
+            const out = blendSkyPixel(r, g, b, y / h, x / w, skyMask[pix], activeSkyOpts);
             r = out.r;
             g = out.g;
             b = out.b;
@@ -3068,16 +3384,17 @@ ${lengthBlock}
     }
   }
 
-  function needsHeavyLitProcessing(contrastVal, skyOpts) {
+  function needsHeavyLitProcessing(contrastVal, skyOpts, photo = null) {
     return (
       contrastVal !== 0 ||
       Number(skyOpts?.strength) > 0 ||
-      Number(skyOpts?.foreground) > 0
+      Number(skyOpts?.foreground) > 0 ||
+      hasSkyPaint(photo)
     );
   }
 
-  function needsLitProcessing(bright, contrastVal, skyOpts) {
-    return bright !== 0 || needsHeavyLitProcessing(contrastVal, skyOpts);
+  function needsLitProcessing(bright, contrastVal, skyOpts, photo = null) {
+    return bright !== 0 || needsHeavyLitProcessing(contrastVal, skyOpts, photo);
   }
 
   function applyBrightnessToCanvas(targetCanvas, bright) {
@@ -3148,7 +3465,7 @@ ${lengthBlock}
     if (photo.pixelEdited) return false;
     if (!photo.sourceImage?.naturalWidth) return false;
     const { contrastVal, skyOpts } = getPhotoAdjustments(photo);
-    return !needsHeavyLitProcessing(contrastVal, skyOpts);
+    return !needsHeavyLitProcessing(contrastVal, skyOpts, photo);
   }
 
   async function buildWatermarkOnlyExportCanvas(photo, { watermark = true } = {}) {
@@ -3202,13 +3519,13 @@ ${lengthBlock}
     await yieldToUi();
 
     let temp;
-    if (!needsLitProcessing(bright, contrastVal, skyOpts)) {
+    if (!needsLitProcessing(bright, contrastVal, skyOpts, photo)) {
       temp = await scaleImageDataForExport(data, w, h);
     } else {
       const workingData = scaleImageData(data, w, h);
       await yieldToUi();
       const out = new ImageData(w, h);
-      await processLitPixelsAsync(workingData, out.data, bright, contrastVal, skyOpts);
+      await processLitPixelsAsync(workingData, out.data, bright, contrastVal, skyOpts, photo);
       temp = document.createElement("canvas");
       temp.width = w;
       temp.height = h;
@@ -3238,11 +3555,11 @@ ${lengthBlock}
     temp.height = fullH;
     const tctx = temp.getContext("2d");
 
-    if (!needsLitProcessing(bright, contrastVal, skyOpts)) {
+    if (!needsLitProcessing(bright, contrastVal, skyOpts, getActivePhoto())) {
       tctx.putImageData(baseImageData, 0, 0);
     } else {
       const out = new ImageData(w, h);
-      processLitPixels(preview, out.data, bright, contrastVal, skyOpts);
+      processLitPixels(preview, out.data, bright, contrastVal, skyOpts, getActivePhoto());
       if (w === fullW && h === fullH) {
         tctx.putImageData(out, 0, 0);
       } else {
@@ -3284,7 +3601,7 @@ ${lengthBlock}
       range: "100",
       edgeFade: "50",
       foreground: "0",
-      keepClouds: true,
+      keepClouds: false,
     });
     for (let y = 0; y < h; y += 1) {
       for (let x = 0; x < w; x += 1) {
@@ -3325,7 +3642,7 @@ ${lengthBlock}
       btn.append(thumb, label);
       btn.addEventListener("click", () => {
         setActiveSkyPresetId(id);
-        if (Number(skyStrength.value) < 40) skyStrength.value = "90";
+        if (Number(skyStrength.value) < 40) skyStrength.value = "100";
         onSkyControlChange();
         setPanelTab("edit");
         setTool("sky");
@@ -3568,7 +3885,7 @@ ${lengthBlock}
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(sourceCanvas, 0, 0);
     baseImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    invalidateSkyCaches();
+    invalidateSkyCaches({ clearPaint: true });
     aspectRatio = canvas.width / canvas.height;
     resizeWidth.value = String(canvas.width);
     resizeHeight.value = String(canvas.height);
@@ -3584,6 +3901,7 @@ ${lengthBlock}
       photo.brightness = brightness.value;
       photo.contrast = contrast.value;
       clearPreMosaicSnapshot(photo);
+      clearSkyPaintForPhoto(photo);
       renderGallery();
     }
     requestAnimationFrame(() => fitView());
@@ -3947,18 +4265,58 @@ ${lengthBlock}
   function plateTypePriority(type) {
     if (type === "plate-color") return 4;
     if (type === "plate") return 3;
-    if (type === "plate-est") return 1;
     return 2;
   }
 
+  /** 日本のナンバープレート色（白・黄・緑）に近い画素か */
   function isPlateColorPixel(r, g, b) {
-    if (r > 135 && g > 115 && b < 135 && r > b + 28 && g > b + 8) return true;
-    if (r > 168 && g > 168 && b > 168 && Math.abs(r - g) < 35 && Math.abs(g - b) < 35) return true;
-    if (g > 95 && g > r + 12 && g > b + 12 && r < 125 && b < 125) return true;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const sat = max === 0 ? 0 : (max - min) / max;
+    const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    // 黄（軽自動車など）
+    if (r > 145 && g > 125 && b < 120 && r > b + 35 && g > b + 20 && sat > 0.18) return true;
+    // 白〜薄い銀（自家用）※ヘッドライトより低彩度寄り
+    if (lum > 0.62 && sat < 0.18 && Math.abs(r - g) < 28 && Math.abs(g - b) < 28 && Math.abs(r - b) < 32) {
+      return true;
+    }
+    // 緑（事業用）
+    if (g > 100 && g > r + 18 && g > b + 14 && r < 130 && b < 130 && sat > 0.16) return true;
     return false;
   }
 
-  function findPlateColorRegion(imageData, sx, sy, sw, sh) {
+  function plateEdgeScore(imageData, box) {
+    const data = imageData.data;
+    const w = imageData.width;
+    const h = imageData.height;
+    const x0 = Math.max(1, Math.floor(box.x));
+    const y0 = Math.max(1, Math.floor(box.y));
+    const x1 = Math.min(w - 1, Math.ceil(box.x + box.w));
+    const y1 = Math.min(h - 1, Math.ceil(box.y + box.h));
+    if (x1 <= x0 || y1 <= y0) return 0;
+    let sum = 0;
+    let n = 0;
+    const stepX = Math.max(1, Math.round((x1 - x0) / 28));
+    const stepY = Math.max(1, Math.round((y1 - y0) / 16));
+    for (let y = y0; y < y1; y += stepY) {
+      for (let x = x0; x < x1; x += stepX) {
+        const i = (y * w + x) * 4;
+        const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+        const ir = ((y * w + (x + 1)) * 4);
+        const id = (((y + 1) * w + x) * 4);
+        const lumR = 0.299 * data[ir] + 0.587 * data[ir + 1] + 0.114 * data[ir + 2];
+        const lumD = 0.299 * data[id] + 0.587 * data[id + 1] + 0.114 * data[id + 2];
+        sum += Math.abs(lum - lumR) + Math.abs(lum - lumD);
+        n += 1;
+      }
+    }
+    return n ? sum / n : 0;
+  }
+
+  /**
+   * ROI内のプレート色連結成分から、ナンバーらしい矩形を選ぶ
+   */
+  function findPlateColorRegion(imageData, sx, sy, sw, sh, opts = {}) {
     const data = imageData.data;
     const w = imageData.width;
     const h = imageData.height;
@@ -3966,41 +4324,116 @@ ${lengthBlock}
     const y0 = Math.max(0, Math.floor(sy));
     const x1 = Math.min(w, Math.ceil(sx + sw));
     const y1 = Math.min(h, Math.ceil(sy + sh));
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-    let count = 0;
-    const step = Math.max(1, Math.round(Math.min(sw, sh) / 80));
+    const roiW = Math.max(1, x1 - x0);
+    const roiH = Math.max(1, y1 - y0);
+    const step = Math.max(1, Math.round(Math.min(roiW, roiH) / 90));
+    const gw = Math.ceil(roiW / step);
+    const gh = Math.ceil(roiH / step);
+    const grid = new Uint8Array(gw * gh);
 
-    for (let py = y0; py < y1; py += step) {
-      for (let px = x0; px < x1; px += step) {
+    for (let gy = 0; gy < gh; gy += 1) {
+      for (let gx = 0; gx < gw; gx += 1) {
+        const px = Math.min(w - 1, x0 + gx * step);
+        const py = Math.min(h - 1, y0 + gy * step);
         const i = (py * w + px) * 4;
-        if (!isPlateColorPixel(data[i], data[i + 1], data[i + 2])) continue;
-        count += 1;
-        minX = Math.min(minX, px);
-        minY = Math.min(minY, py);
-        maxX = Math.max(maxX, px);
-        maxY = Math.max(maxY, py);
+        if (isPlateColorPixel(data[i], data[i + 1], data[i + 2])) grid[gy * gw + gx] = 1;
       }
     }
 
-    if (count < 18) return null;
-    const pad = Math.max(3, Math.round((maxX - minX) * 0.08));
-    const x = Math.max(0, minX - pad);
-    const y = Math.max(0, minY - pad);
-    const x2 = Math.min(w, maxX + pad);
-    const y2 = Math.min(h, maxY + pad);
-    return { x, y, w: Math.max(1, x2 - x), h: Math.max(1, y2 - y) };
+    const visited = new Uint8Array(gw * gh);
+    let best = null;
+    let bestScore = -1;
+    const queue = new Int32Array(gw * gh);
+
+    for (let seed = 0; seed < grid.length; seed += 1) {
+      if (!grid[seed] || visited[seed]) continue;
+      let qh = 0;
+      let qt = 0;
+      queue[qt++] = seed;
+      visited[seed] = 1;
+      let minGX = seed % gw;
+      let maxGX = minGX;
+      let minGY = (seed - minGX) / gw;
+      let maxGY = minGY;
+      let count = 0;
+
+      while (qh < qt) {
+        const idx = queue[qh++];
+        const gx = idx % gw;
+        const gy = (idx - gx) / gw;
+        count += 1;
+        minGX = Math.min(minGX, gx);
+        maxGX = Math.max(maxGX, gx);
+        minGY = Math.min(minGY, gy);
+        maxGY = Math.max(maxGY, gy);
+        const neigh = [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+          [1, 1],
+          [-1, 1],
+          [1, -1],
+          [-1, -1],
+        ];
+        for (let n = 0; n < neigh.length; n += 1) {
+          const nx = gx + neigh[n][0];
+          const ny = gy + neigh[n][1];
+          if (nx < 0 || ny < 0 || nx >= gw || ny >= gh) continue;
+          const nidx = ny * gw + nx;
+          if (visited[nidx] || !grid[nidx]) continue;
+          visited[nidx] = 1;
+          queue[qt++] = nidx;
+        }
+      }
+
+      if (count < 10) continue;
+      const bw = (maxGX - minGX + 1) * step;
+      const bh = (maxGY - minGY + 1) * step;
+      const aspect = bw / Math.max(1, bh);
+      if (aspect < 1.7 || aspect > 6.2) continue;
+      const dens = count / Math.max(1, (maxGX - minGX + 1) * (maxGY - minGY + 1));
+      if (dens < 0.28) continue;
+
+      const pad = Math.max(2, Math.round(bw * 0.06));
+      const box = {
+        x: Math.max(0, x0 + minGX * step - pad),
+        y: Math.max(0, y0 + minGY * step - pad),
+        w: Math.min(w, x0 + (maxGX + 1) * step + pad) - Math.max(0, x0 + minGX * step - pad),
+        h: Math.min(h, y0 + (maxGY + 1) * step + pad) - Math.max(0, y0 + minGY * step - pad),
+      };
+      if (!isValidPlateBox(box, w, h)) continue;
+
+      // 車両ROI内での相対サイズ（指定時）
+      if (opts.vehicleW && opts.vehicleH) {
+        if (box.w < opts.vehicleW * 0.14 || box.w > opts.vehicleW * 0.72) continue;
+        if (box.h < opts.vehicleH * 0.035 || box.h > opts.vehicleH * 0.2) continue;
+        const cy = box.y + box.h / 2;
+        if (opts.vehicleY != null && cy < opts.vehicleY + opts.vehicleH * 0.48) continue;
+      }
+
+      const edge = plateEdgeScore(imageData, box);
+      // 文字のあるプレートはエッジが高め。低すぎる＝ベタ塗りや壁
+      if (edge < 12) continue;
+      const score = dens * 40 + Math.min(edge, 80) + (aspect >= 2 && aspect <= 4 ? 12 : 0);
+      if (score > bestScore) {
+        bestScore = score;
+        best = box;
+      }
+    }
+
+    return best;
   }
 
   function isValidPlateBox(box, imgW, imgH) {
-    if (!box || box.w < 10 || box.h < 5) return false;
+    if (!box || box.w < 14 || box.h < 7) return false;
     const aspect = box.w / box.h;
-    if (aspect < 1.5 || aspect > 9) return false;
-    if (box.w > imgW * 0.32 || box.h > imgH * 0.14) return false;
+    // 日本のプレートはおおよそ横長 2:1 前後
+    if (aspect < 1.7 || aspect > 6.2) return false;
+    if (box.w > imgW * 0.28 || box.h > imgH * 0.1) return false;
     const area = box.w * box.h;
-    if (area > imgW * imgH * 0.04) return false;
+    if (area < 140) return false;
+    if (area > imgW * imgH * 0.028) return false;
     return true;
   }
 
@@ -4013,16 +4446,21 @@ ${lengthBlock}
   }
 
   function refinePlateBoxWithColor(imageData, box, imgW, imgH) {
-    const padX = box.w * 0.2;
-    const padY = box.h * 0.35;
+    const padX = box.w * 0.35;
+    const padY = box.h * 0.45;
     const sx = Math.max(0, box.x - padX);
     const sy = Math.max(0, box.y - padY);
     const sw = Math.min(imgW, box.x + box.w + padX) - sx;
     const sh = Math.min(imgH, box.y + box.h + padY) - sy;
     const refined = findPlateColorRegion(imageData, sx, sy, sw, sh);
     if (refined && isValidPlateBox(refined, imgW, imgH)) {
-      return { ...box, ...refined, type: box.type === "plate-est" ? "plate-color" : box.type };
+      const edge = plateEdgeScore(imageData, refined);
+      if (edge >= 12) {
+        return { ...box, ...refined, type: "plate-color" };
+      }
     }
+    // 色で絞れない推定枠は捨てる（車体への誤モザイク防止）
+    if (box.type === "plate-est") return null;
     return box;
   }
 
@@ -4031,9 +4469,17 @@ ${lengthBlock}
     const imgW = source.width;
     const imgH = source.height;
     const imageData = source.getContext("2d").getImageData(0, 0, imgW, imgH);
-    return boxes.map((box) =>
-      box.type.startsWith("plate") ? refinePlateBoxWithColor(imageData, box, imgW, imgH) : box,
-    );
+    return boxes
+      .map((box) =>
+        box.type.startsWith("plate") ? refinePlateBoxWithColor(imageData, box, imgW, imgH) : box,
+      )
+      .filter(Boolean)
+      .filter((box) => {
+        if (!box.type.startsWith("plate")) return true;
+        // 最終ゲート: 形状＋文字っぽいエッジ
+        if (!isValidPlateBox(box, imgW, imgH)) return false;
+        return plateEdgeScore(imageData, box) >= 10;
+      });
   }
 
   function filterDetectionBoxes(boxes, imgW, imgH) {
@@ -4160,39 +4606,42 @@ ${lengthBlock}
     const imageData = source.getContext("2d").getImageData(0, 0, imgW, imgH);
 
     try {
-      const preds = await objectModel.detect(detectCanvas, 30, 0.32);
+      const preds = await objectModel.detect(detectCanvas, 40, 0.28);
       preds.forEach((p) => {
         if (!VEHICLE_CLASSES.has(p.class)) return;
         const [x, y, w, h] = p.bbox;
         const fullW = w * inv;
         const fullH = h * inv;
-        if (fullW < 28 || fullH < 20) return;
+        if (fullW < 36 || fullH < 24) return;
 
         const vx = x * inv;
         const vy = y * inv;
-        const colorBox = findPlateColorRegion(imageData, vx, vy + fullH * 0.52, fullW, fullH * 0.46);
+        // 車体下半分〜下部に限定してプレート色の連結成分を探す（推定枠は使わない）
+        const searchY = vy + fullH * 0.5;
+        const searchH = fullH * 0.48;
+        const colorBox = findPlateColorRegion(imageData, vx + fullW * 0.08, searchY, fullW * 0.84, searchH, {
+          vehicleW: fullW,
+          vehicleH: fullH,
+          vehicleY: vy,
+        });
         if (colorBox && isValidPlateBox(colorBox, imgW, imgH)) {
           boxes.push({ type: "plate-color", ...colorBox });
-          return;
-        }
-
-        const fallback = {
-          x: vx + fullW * 0.26,
-          y: vy + fullH * 0.83,
-          w: fullW * 0.48,
-          h: fullH * 0.09,
-        };
-        if (isValidPlateBox(fallback, imgW, imgH)) {
-          boxes.push({ type: "plate-est", ...fallback });
         }
       });
     } catch (err) {
       console.warn(err);
     }
 
+    // 車検出が無い場合のみ、画像下部を控えめに探索（看板などへの誤検知を抑える）
     if (!boxes.length) {
-      const colorBox = findPlateColorRegion(imageData, imgW * 0.08, imgH * 0.55, imgW * 0.84, imgH * 0.4);
-      if (colorBox && isValidPlateBox(colorBox, imgW, imgH)) {
+      const colorBox = findPlateColorRegion(
+        imageData,
+        imgW * 0.15,
+        imgH * 0.62,
+        imgW * 0.7,
+        imgH * 0.3,
+      );
+      if (colorBox && isValidPlateBox(colorBox, imgW, imgH) && plateEdgeScore(imageData, colorBox) >= 16) {
         boxes.push({ type: "plate-color", ...colorBox });
       }
     }
@@ -4214,14 +4663,17 @@ ${lengthBlock}
 
     const prompt =
       target === "plates"
-        ? `この不動産写真の「車のナンバープレート」だけを検出してください。
-対象: 日本の黄色・白・緑の長方形プレート（文字が読めるもの）。
-除外: ヘッドライト、グリル、ガラス、ボンネット、看板、表札、人物。
-必ず次のJSONのみ返すこと:
+        ? `この不動産写真から「自動車のナンバープレート」だけを厳密に検出してください。
+対象: 日本のナンバープレート本体のみ（白・黄・緑の横長長方形。文字・ひらがな・数字が見えるもの）。
+除外（絶対に含めない）: ヘッドライト、フォグ、グリル、バンパー全体、エンブレム、ガラス、ミラー、看板、表札、ポスター、エアコン室外機、白い壁、人物、バイク以外の標識。
+ルール:
+- プレートの外枠に沿った最小矩形のみ返す（車体を大きく囲まない）
+- 1枚の車に複数ある場合はそれぞれ返す
+- 自信がない候補は返さない
+必ず次のJSONのみ:
 {"items":[{"xmin":0,"ymin":0,"xmax":0,"ymax":0}]}
-座標は画像左上原点で0〜1000の正規化値（xmin,ymin=左上、xmax,ymax=右下）。
-プレート本体＋わずかな余白のみ。車体の広い範囲は含めない。
-写っていない・不明な場合は {"items":[]}。`
+座標は画像左上原点で0〜1000正規化（xmin,ymin=左上、xmax,ymax=右下）。
+写っていない場合は {"items":[]}。`
         : `この不動産写真の「人物の顔・頭部」だけを検出してください。
 除外: 車のナンバー、看板、ポスター、反射、車体。
 必ず次のJSONのみ返すこと:
@@ -4342,7 +4794,7 @@ ${lengthBlock}
         box.type === "face" || box.type === "face-gemini"
           ? 0.32
           : box.type.startsWith("plate")
-            ? 0.18
+            ? 0.08
             : 0.16;
       const b = expandBox(box, pad, imgW, imgH);
       const block =
@@ -4391,14 +4843,19 @@ ${lengthBlock}
         }
       }
       if (plates) {
-        boxes.push(...(await detectPlateBoxesLocal(detectCanvas, scale, objectModel, photo)));
+        let plateBoxes = [];
         if (hasGemini) {
           try {
-            boxes.push(...(await detectVisionBoxesGemini(photo, "plates")));
+            plateBoxes = await detectVisionBoxesGemini(photo, "plates");
           } catch (err) {
             console.warn(err);
           }
         }
+        // Geminiが無い／見つからないときだけローカル（色＋形状）。推定枠は使わない
+        if (!plateBoxes.length) {
+          plateBoxes = await detectPlateBoxesLocal(detectCanvas, scale, objectModel, photo);
+        }
+        boxes.push(...plateBoxes);
       }
     }
 
@@ -4580,8 +5037,10 @@ ${lengthBlock}
     });
     canvas.classList.toggle("tool-hide", tool === "hide");
     canvas.classList.toggle("tool-crop", tool === "crop");
-    if (tool !== "hide") cursor.style.display = "none";
+    canvas.classList.toggle("tool-sky", tool === "sky");
+    if (tool !== "hide" && tool !== "sky") cursor.style.display = "none";
     updateHideBrushUi();
+    updateSkyBrushUi();
 
     if (tool === "crop") {
       previewAngle = 0;
@@ -5051,7 +5510,7 @@ ${lengthBlock}
     if (!batchResizeHint) return;
     const preset = activeExportPreset && EXPORT_PRESETS[activeExportPreset];
     if (preset?.kind === "iri-box") {
-      batchResizeHint.textContent = `${preset.label}: ${preset.minW}〜${preset.maxW}px・${Math.round(preset.maxBytes / 1024)}KB以内（保存時は画質10〜8段階で調整）`;
+      batchResizeHint.textContent = `${preset.label}: ${preset.minW}〜${preset.maxW}px・${Math.round(preset.maxBytes / 1024)}KB以内（保存時は上限近くの画質で調整）`;
       if (batchLongEdgeField) batchLongEdgeField.hidden = true;
       return;
     }
@@ -5081,7 +5540,7 @@ ${lengthBlock}
     if (exportPresetHint) {
       const preset = EXPORT_PRESETS[activeExportPreset];
       exportPresetHint.textContent = preset
-        ? `IRI公式ガイドライン準拠: ${preset.hint}（保存時はPhotoShop風の画質段階・物件写真は10→9→8…）`
+        ? `IRI公式ガイドライン準拠: ${preset.hint}（保存時は画質を上げ、250KB近くまで使います）`
         : "幅・高さを手動で指定しています。";
     }
     updateBatchResizeHint();
@@ -5314,6 +5773,21 @@ ${lengthBlock}
     }
   });
 
+  function updateSkyBrushUi() {
+    if (skyBrushModePicker) {
+      skyBrushModePicker.querySelectorAll(".hide-brush-mode-btn").forEach((btn) => {
+        const active = btn.dataset.mode === skyBrushMode;
+        btn.classList.toggle("is-active", active);
+        btn.setAttribute("aria-pressed", active ? "true" : "false");
+      });
+    }
+    if (skyBrushSizeLabel && skyBrushSize) {
+      skyBrushSizeLabel.textContent = skyBrushSize.value;
+    }
+    cursor.classList.toggle("is-sky-erase", activeTool === "sky" && skyBrushMode === "erase");
+    canvas.classList.toggle("tool-sky-erase", activeTool === "sky" && skyBrushMode === "erase");
+  }
+
   function onSkyControlChange() {
     updateSkyLabels();
     updateSkyPresetActive();
@@ -5335,20 +5809,42 @@ ${lengthBlock}
   });
   skyKeepClouds.addEventListener("change", onSkyControlChange);
 
+  if (skyBrushModePicker) {
+    skyBrushModePicker.querySelectorAll(".hide-brush-mode-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        skyBrushMode = btn.dataset.mode === "erase" ? "erase" : "add";
+        updateSkyBrushUi();
+      });
+    });
+  }
+  if (skyBrushSize) {
+    skyBrushSize.addEventListener("input", () => {
+      updateSkyBrushUi();
+    });
+  }
+  if (skyClearPaintBtn) {
+    skyClearPaintBtn.addEventListener("click", () => {
+      clearSkyPaintForPhoto(getActivePhoto());
+      scheduleRenderEffects();
+      showToast("ブラシで塗った範囲をクリアしました");
+    });
+  }
+  updateSkyBrushUi();
+
   skyAutoBtn.addEventListener("click", () => {
     if (!baseImageData) return;
-    setActiveSkyPresetId("clear-blue");
-    skyStrength.value = "90";
-    skyBrightness.value = "4";
-    skyTemperature.value = "0";
-    skyScale.value = "100";
-    skyShift.value = "0";
-    skyRange.value = "62";
-    skyEdgeFade.value = "55";
-    skyForeground.value = "18";
-    skyKeepClouds.checked = true;
+    setActiveSkyPresetId("cloudy-blue");
+    skyStrength.value = "100";
+    skyBrightness.value = "2";
+    skyTemperature.value = "4";
+    skyScale.value = "105";
+    skyShift.value = "-4";
+    skyRange.value = "72";
+    skyEdgeFade.value = "65";
+    skyForeground.value = "20";
+    skyKeepClouds.checked = false;
     onSkyControlChange();
-    showToast("空を自動置き換えしました");
+    showToast("雲のある自然な青空に置き換えました");
     setPanelTab("edit");
     setTool("sky");
   });
@@ -5363,7 +5859,8 @@ ${lengthBlock}
     skyRange.value = "55";
     skyEdgeFade.value = "50";
     skyForeground.value = "0";
-    skyKeepClouds.checked = true;
+    skyKeepClouds.checked = false;
+    clearSkyPaintForPhoto(getActivePhoto());
     onSkyControlChange();
     showToast("空の編集をリセットしました");
   });
@@ -5528,13 +6025,30 @@ ${lengthBlock}
     if (!baseImageData) return false;
     if (panMode || spaceHeld) return true;
     if ("button" in e && e.button === 1) return true;
-    if (activeTool === "hide" || activeTool === "crop") return false;
+    if (activeTool === "hide" || activeTool === "crop" || activeTool === "sky") return false;
     return true;
   }
 
   function startPaint(e) {
     if (panning || panMode || spaceHeld) return;
-    if (activeTool !== "hide" || !baseImageData) return;
+    if (!baseImageData) return;
+
+    if (activeTool === "sky") {
+      e.preventDefault();
+      if (!(Number(skyStrength.value) > 0)) {
+        skyStrength.value = "100";
+        updateSkyLabels();
+        persistSkyToActivePhoto();
+      }
+      skyPainting = true;
+      painting = true;
+      lastPoint = getCanvasPoint(e);
+      paintSkyAt(lastPoint.x, lastPoint.y);
+      scheduleRenderEffects();
+      return;
+    }
+
+    if (activeTool !== "hide") return;
     e.preventDefault();
     if (hideBrushMode === "restore") {
       if (!canUndoMosaic(getActivePhoto())) {
@@ -5609,11 +6123,11 @@ ${lengthBlock}
       canvas.style.cursor = mode ? cursors[mode] || "crosshair" : "crosshair";
     }
 
-    if (activeTool === "hide" && !spaceHeld && !panMode) {
+    if ((activeTool === "hide" || activeTool === "sky") && !spaceHeld && !panMode) {
       const clientX = "touches" in e ? e.touches[0]?.clientX : e.clientX;
       const clientY = "touches" in e ? e.touches[0]?.clientY : e.clientY;
       if (clientX != null) {
-        const size = Number(brushSize.value);
+        const size = Number(activeTool === "sky" ? skyBrushSize?.value || 56 : brushSize.value);
         const rect = canvas.getBoundingClientRect();
         const scale = rect.width / canvas.width;
         cursor.style.display = "block";
@@ -5621,10 +6135,21 @@ ${lengthBlock}
         cursor.style.height = `${size * scale}px`;
         cursor.style.left = `${clientX}px`;
         cursor.style.top = `${clientY}px`;
+        cursor.classList.toggle("is-sky-erase", activeTool === "sky" && skyBrushMode === "erase");
+        cursor.classList.toggle("is-restore", activeTool === "hide" && hideBrushMode === "restore");
       }
     }
 
-    if (!painting || activeTool !== "hide") return;
+    if (!painting) return;
+    if (activeTool === "sky") {
+      e.preventDefault();
+      const point = getCanvasPoint(e);
+      strokeSkyBrush(lastPoint, point);
+      lastPoint = point;
+      scheduleRenderEffects();
+      return;
+    }
+    if (activeTool !== "hide") return;
     e.preventDefault();
     const point = getCanvasPoint(e);
     strokeHideBrush(lastPoint, point);
@@ -5639,6 +6164,11 @@ ${lengthBlock}
         markPhotoPixelEdited(photo);
       }
     }
+    if (skyPainting) {
+      persistSkyToActivePhoto();
+      scheduleRenderEffects();
+    }
+    skyPainting = false;
     painting = false;
     lastPoint = null;
     panning = false;
@@ -5682,7 +6212,7 @@ ${lengthBlock}
   canvasWrap.addEventListener(
     "touchstart",
     (e) => {
-      if (panMode || spaceHeld || (activeTool !== "hide" && activeTool !== "crop")) {
+      if (panMode || spaceHeld || (activeTool !== "hide" && activeTool !== "crop" && activeTool !== "sky")) {
         if (startPan(e)) return;
       }
       if (startCropDrag(e)) return;
@@ -5789,7 +6319,7 @@ ${lengthBlock}
     skyRange.value = "55";
     skyEdgeFade.value = "50";
     skyForeground.value = "0";
-    skyKeepClouds.checked = true;
+    skyKeepClouds.checked = false;
     setActiveSkyPresetId(DEFAULT_SKY_PRESET);
     previewAngle = 0;
     rotateAngle.value = "0";
@@ -5811,7 +6341,8 @@ ${lengthBlock}
       photo.skyRange = "55";
       photo.skyEdgeFade = "50";
       photo.skyForeground = "0";
-      photo.skyKeepClouds = true;
+      photo.skyKeepClouds = false;
+      photo.skyPaint = null;
     }
   });
 
@@ -5827,37 +6358,36 @@ ${lengthBlock}
   }
 
   /**
-   * PhotoShop風の画質段階（12〜3、実務では最大10）で JPEG を調整する。
-   * 上限内に収まる「いちばん高い段階」を選ぶ。微調整の連続探索はしない。
+   * PhotoShop風の画質段階で JPEG を調整する。
+   * 上限以内で、できるだけ上限に近い（＝高い画質の）結果を返す。
    */
-  // browser quality は PhotoShop JPEG 品質の近似マップ
+  // browser quality は PhotoShop JPEG 品質の近似（物件写真向けに高め）
   const PHOTOSHOP_JPEG_STEPS = [
-    { level: 12, quality: 0.92 },
-    { level: 11, quality: 0.88 },
-    { level: 10, quality: 0.82 },
-    { level: 9, quality: 0.76 },
-    { level: 8, quality: 0.7 },
-    { level: 7, quality: 0.62 },
-    { level: 6, quality: 0.55 },
-    { level: 5, quality: 0.48 },
-    { level: 4, quality: 0.4 },
-    { level: 3, quality: 0.32 },
+    { level: 12, quality: 0.97 },
+    { level: 11, quality: 0.94 },
+    { level: 10, quality: 0.9 },
+    { level: 9, quality: 0.86 },
+    { level: 8, quality: 0.82 },
+    { level: 7, quality: 0.76 },
+    { level: 6, quality: 0.68 },
+    { level: 5, quality: 0.58 },
+    { level: 4, quality: 0.48 },
+    { level: 3, quality: 0.38 },
   ];
 
   function getPhotoshopJpegSteps(maxBytes) {
-    // 物件写真(250KB)は 10〜8 を優先。収まらなければ 7 以下へ。
-    // 見出写真(5KB)は小さめから試し、必要ならさらに下げる。
+    // 見出写真(5KB)は低めから。物件写真(250KB)は 12 から下げて上限近くを使う。
     if (maxBytes <= 8 * 1024) {
       return PHOTOSHOP_JPEG_STEPS.filter((s) => s.level <= 8);
     }
-    return PHOTOSHOP_JPEG_STEPS.filter((s) => s.level <= 10);
+    return PHOTOSHOP_JPEG_STEPS.slice();
   }
 
   function capExportDimensions(width, height, maxBytes) {
     const longEdge = Math.max(width, height);
     let cap = 4096;
     if (maxBytes <= 8 * 1024) cap = 120;
-    else if (maxBytes <= 300 * 1024) cap = 960;
+    else if (maxBytes <= 300 * 1024) cap = 800;
     if (longEdge <= cap) return { width, height };
     const scale = cap / longEdge;
     return {
@@ -5914,21 +6444,43 @@ ${lengthBlock}
     let height = capped.height;
     const steps = getPhotoshopJpegSteps(maxBytes);
     const maxAttempts = maxBytes <= 8 * 1024 ? 4 : 3;
+    // 物件写真は上限の約88%以上を目標（小さすぎ防止）
+    const fillTarget = maxBytes <= 8 * 1024 ? 0 : Math.floor(maxBytes * 0.88);
 
     async function findBestQuality(exportCanvas, w, h) {
+      let best = null;
       for (const step of steps) {
         const candidate = await canvasToJpegBlob(exportCanvas, step.quality);
         if (candidate.size <= maxBytes) {
-          // 高い段階から試すので、初めて収まったものが最良
-          return {
+          best = {
             ...candidate,
             width: w,
             height: h,
             psLevel: step.level,
           };
+          break;
         }
       }
-      return null;
+      if (!best) return null;
+
+      // まだ上限に余裕があれば、段階の間を粗いブーストで詰める
+      if (fillTarget && best.size < fillTarget) {
+        const boosts = [0.92, 0.95, 0.97, 0.99, 1];
+        for (const q of boosts) {
+          if (q <= best.quality + 0.005) continue;
+          const candidate = await canvasToJpegBlob(exportCanvas, q);
+          if (candidate.size <= maxBytes && candidate.size >= best.size) {
+            best = {
+              ...candidate,
+              width: w,
+              height: h,
+              psLevel: q >= 0.97 ? 12 : q >= 0.94 ? 11 : Math.max(best.psLevel || 10, 10),
+            };
+            if (best.size >= fillTarget) break;
+          }
+        }
+      }
+      return best;
     }
 
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
