@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const APP_VERSION = "39";
+  const APP_VERSION = "40";
 
   const fileInput = document.getElementById("fileInput");
   const fileHint = document.getElementById("fileHint");
@@ -1239,12 +1239,31 @@
   let watermarkLoadPromise = null;
   let activeWatermarkPosition = DEFAULT_WATERMARK_POSITION;
   const GEMINI_MODELS = [
+    "gemini-3.5-flash",
     "gemini-2.5-flash",
     "gemini-2.0-flash",
     "gemini-flash-latest",
     "gemini-2.5-flash-lite",
     "gemini-1.5-flash",
   ];
+
+  function isGemini3Model(model) {
+    return String(model || "").startsWith("gemini-3");
+  }
+
+  function withGeminiGenerationConfig(config, model) {
+    if (!isGemini3Model(model)) return config;
+    return {
+      ...config,
+      maxOutputTokens: Math.max(Number(config.maxOutputTokens) || 0, 1024),
+      thinkingConfig: { thinkingLevel: "low" },
+    };
+  }
+
+  function geminiResponseText(data) {
+    const parts = data?.candidates?.[0]?.content?.parts || [];
+    return parts.filter((part) => !part.thought).map((part) => part.text || "").join("");
+  }
 
   const CATEGORY_VISUAL_HINTS = {
     外観: "外壁材・色、階数、バルコニー、エントランス、駐車場、植栽、周辺建物",
@@ -1765,9 +1784,12 @@ ${lengthBlock}
           try {
             const body = {
               ...baseBody,
-              generationConfig: useJson
-                ? { ...baseBody.generationConfig, responseMimeType: "application/json" }
-                : { ...baseBody.generationConfig },
+              generationConfig: withGeminiGenerationConfig(
+                useJson
+                  ? { ...baseBody.generationConfig, responseMimeType: "application/json" }
+                  : { ...baseBody.generationConfig },
+                model,
+              ),
             };
             const url = buildGeminiUrl(`v1beta/models/${model}:generateContent`);
             const res = await fetch(url, {
@@ -1809,7 +1831,7 @@ ${lengthBlock}
               throw new Error(explainGeminiError(`SAFETY:${finish}`, data));
             }
 
-            const text = candidate?.content?.parts?.map((p) => p.text || "").join("") || "";
+            const text = geminiResponseText(data);
             if (!text) {
               lastError = new Error(explainGeminiError("AIから本文が返りませんでした", data));
               break;
@@ -1880,11 +1902,14 @@ ${lengthBlock}
         const res = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
+          body: JSON.stringify({
+            ...body,
+            generationConfig: withGeminiGenerationConfig(body.generationConfig, model),
+          }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) continue;
-        const text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
+        const text = geminiResponseText(data);
         if (!text) continue;
         const parsed = parseCaptionResponse(text);
         const expanded = clampCaptionBody(stripCaptionPrefix(parsed.caption));
@@ -4781,7 +4806,10 @@ ${lengthBlock}
         const res = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
+          body: JSON.stringify({
+            ...body,
+            generationConfig: withGeminiGenerationConfig(body.generationConfig, model),
+          }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
@@ -4790,7 +4818,7 @@ ${lengthBlock}
           if (res.status === 429) throw new Error(explainGeminiError(lastError.message));
           continue;
         }
-        const text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
+        const text = geminiResponseText(data);
         const match = text.match(/\{[\s\S]*\}/);
         if (!match) return [];
         const parsed = JSON.parse(match[0]);

@@ -161,7 +161,7 @@ open -a "Google Chrome" http://127.0.0.1:5173/
 - APIキー取得: https://aistudio.google.com/apikey
 - 「確認」ボタンでキー有効性をチェック（一覧APIのみ・生成はしない）
 - 写真は生成時に Google へ送信される
-- モデル優先: `gemini-2.5-flash` → `gemini-2.0-flash` → lite 系（上限時）
+- モデル優先: `gemini-3.5-flash` → `gemini-2.5-flash` → 2.0 / lite 系（上限時）
 
 ### キャプション精度を上げるコツ
 
