@@ -12,18 +12,23 @@ echo Starting Lumen on port 8510...
 echo Folder: %CD%
 echo Open: http://localhost:8510
 echo Office: https://lumen.n-kyouei-system.com
+if exist ".env" (
+    echo Gemini: .env found
+) else (
+    echo [WARN] .env がありません。copy .env.example .env して GEMINI_API_KEY を入れてください
+)
 echo Press Ctrl+C to stop
 echo.
 
 where python >nul 2>nul
 if %ERRORLEVEL%==0 (
-    cmd /k "python start_server.py"
+    cmd /k "python -u start_server.py"
     exit /b 0
 )
 
 where py >nul 2>nul
 if %ERRORLEVEL%==0 (
-    cmd /k "py -3 start_server.py"
+    cmd /k "py -3 -u start_server.py"
     exit /b 0
 )
 

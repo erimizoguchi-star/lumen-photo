@@ -22,6 +22,12 @@ if exist "app.js" (
     echo [NG] app.js missing
 )
 
+if exist ".env" (
+    echo [OK] .env
+) else (
+    echo [NG] .env missing - copy .env.example to .env and set GEMINI_API_KEY
+)
+
 where python >nul 2>nul
 if %ERRORLEVEL%==0 (
     echo [OK] python

@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const APP_VERSION = "38";
+  const APP_VERSION = "39";
 
   const fileInput = document.getElementById("fileInput");
   const fileHint = document.getElementById("fileHint");
@@ -1282,8 +1282,51 @@
     aiCaptionStatus.style.color = isError ? "var(--danger-soft)" : "var(--muted)";
   }
 
-  function getGeminiApiKey() {
+  let sharedGeminiReady = false;
+
+  function getPersonalGeminiApiKey() {
     return (geminiApiKey.value || localStorage.getItem(GEMINI_KEY_STORAGE) || "").trim();
+  }
+
+  function hasGeminiAccess() {
+    return Boolean(getPersonalGeminiApiKey() || sharedGeminiReady);
+  }
+
+  function geminiMissingKeyMessage() {
+    return "Gemini APIキーがありません。社内サーバーの .env か、画面の入力欄を確認してください";
+  }
+
+  function buildGeminiUrl(apiPath) {
+    const personal = getPersonalGeminiApiKey();
+    if (personal) {
+      return `https://generativelanguage.googleapis.com/${apiPath}?key=${encodeURIComponent(personal)}`;
+    }
+    if (sharedGeminiReady) {
+      return `/api/gemini/${apiPath}`;
+    }
+    return "";
+  }
+
+  function updateSharedGeminiHint() {
+    if (getPersonalGeminiApiKey()) return;
+    if (sharedGeminiReady) {
+      setApiKeyStatus("社内サーバーの共通キーを使用します（個人キーは不要）", { ok: true });
+    }
+  }
+
+  async function refreshSharedGeminiStatus() {
+    try {
+      const res = await fetch("/api/gemini-status", { cache: "no-store" });
+      if (!res.ok) {
+        sharedGeminiReady = false;
+        return;
+      }
+      const data = await res.json().catch(() => ({}));
+      sharedGeminiReady = Boolean(data.configured);
+    } catch (_) {
+      sharedGeminiReady = false;
+    }
+    updateSharedGeminiHint();
   }
 
   function saveGeminiApiKey() {
@@ -1301,10 +1344,9 @@
 
   async function verifyGeminiApiKey() {
     saveGeminiApiKey();
-    const apiKey = getGeminiApiKey();
-    if (!apiKey) {
-      setApiKeyStatus("APIキーを入力してください", { error: true });
-      showToast("APIキーを入力してください", { error: true });
+    if (!hasGeminiAccess()) {
+      setApiKeyStatus(geminiMissingKeyMessage(), { error: true });
+      showToast(geminiMissingKeyMessage(), { error: true });
       return false;
     }
 
@@ -1315,7 +1357,7 @@
 
     try {
       // 生成は使わず models 一覧だけで確認（クォータ消費を抑える）
-      const listUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`;
+      const listUrl = buildGeminiUrl("v1beta/models");
       const listRes = await fetch(listUrl);
       const listData = await listRes.json().catch(() => ({}));
 
@@ -1329,9 +1371,13 @@
         models.some((m) => (m.name || "").includes(name))
       );
       const modelLabel = available || (models[0]?.name || "models").replace(/^models\//, "");
+      const usingShared = !getPersonalGeminiApiKey() && sharedGeminiReady;
 
-      setApiKeyStatus(`有効です（${modelLabel}）`, { ok: true });
-      showToast("APIキーは有効です");
+      setApiKeyStatus(
+        usingShared ? `社内共通キーは有効です（${modelLabel}）` : `有効です（${modelLabel}）`,
+        { ok: true },
+      );
+      showToast(usingShared ? "社内共通キーは有効です" : "APIキーは有効です");
       return true;
     } catch (err) {
       console.warn(err);
@@ -1687,7 +1733,7 @@ ${lengthBlock}
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  async function callGeminiCaption(base64Jpeg, hintCategory, apiKey, photoName = "") {
+  async function callGeminiCaption(base64Jpeg, hintCategory, photoName = "") {
     const prompt = buildCaptionPrompt(hintCategory, photoName);
     const baseBody = {
       systemInstruction: {
@@ -1723,7 +1769,7 @@ ${lengthBlock}
                 ? { ...baseBody.generationConfig, responseMimeType: "application/json" }
                 : { ...baseBody.generationConfig },
             };
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+            const url = buildGeminiUrl(`v1beta/models/${model}:generateContent`);
             const res = await fetch(url, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -1787,7 +1833,7 @@ ${lengthBlock}
     throw lastError || new Error("生成に失敗しました");
   }
 
-  async function expandCaptionToLimit(base64Jpeg, draftCaption, hintCategory, apiKey) {
+  async function expandCaptionToLimit(base64Jpeg, draftCaption, hintCategory) {
     const bodyMax = getCaptionBodyMax();
     const draft = clampCaptionBody(stripCaptionPrefix(draftCaption));
     if (charLen(draft) >= Math.floor(bodyMax * 0.9)) return draft;
@@ -1830,7 +1876,7 @@ ${lengthBlock}
 
     for (const model of GEMINI_MODELS.slice(0, 3)) {
       try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+        const url = buildGeminiUrl(`v1beta/models/${model}:generateContent`);
         const res = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1851,8 +1897,7 @@ ${lengthBlock}
   }
 
   async function generateCaptionForPhoto(photo, { syncUi = false, requireCategory = true } = {}) {
-    const apiKey = getGeminiApiKey();
-    if (!apiKey) throw new Error("Gemini APIキーを入力してください");
+    if (!hasGeminiAccess()) throw new Error(geminiMissingKeyMessage());
 
     const category =
       (syncUi ? captionCategory.value : "") ||
@@ -1867,7 +1912,7 @@ ${lengthBlock}
     let usedFallback = false;
     let result;
     try {
-      result = await callGeminiCaption(base64, category, apiKey, photo.name || "");
+      result = await callGeminiCaption(base64, category, photo.name || "");
     } catch (err) {
       const fallback = pickFallbackCaption(category);
       result = { category: category || "その他", caption: fallback };
@@ -1883,7 +1928,7 @@ ${lengthBlock}
     } else if (!usedFallback && charLen(caption) < Math.floor(bodyMax * 0.85)) {
       if (syncUi) setAiStatus("文字数を上限近くまで調整中…");
       try {
-        caption = await expandCaptionToLimit(base64, caption, category || result.category, apiKey);
+        caption = await expandCaptionToLimit(base64, caption, category || result.category);
       } catch (_) {
         /* keep original */
       }
@@ -1951,8 +1996,8 @@ ${lengthBlock}
     if (!photos.length) return;
     persistCaptionFromUi();
     saveGeminiApiKey();
-    if (!getGeminiApiKey()) {
-      notifyError("Gemini APIキーを入力してください");
+    if (!hasGeminiAccess()) {
+      notifyError(geminiMissingKeyMessage());
       setAiStatus("APIキーが必要です", true);
       return;
     }
@@ -4682,8 +4727,7 @@ ${lengthBlock}
   }
 
   async function detectVisionBoxesGemini(photo, target) {
-    const apiKey = getGeminiApiKey();
-    if (!apiKey) return [];
+    if (!hasGeminiAccess()) return [];
 
     const source = canvasFromPhoto(photo);
     const imgW = source.width;
@@ -4733,7 +4777,7 @@ ${lengthBlock}
     let lastError = null;
     for (const model of GEMINI_MODELS) {
       try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+        const url = buildGeminiUrl(`v1beta/models/${model}:generateContent`);
         const res = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -4860,7 +4904,7 @@ ${lengthBlock}
     const source = canvasFromPhoto(photo);
     const imgW = source.width;
     const imgH = source.height;
-    const hasGemini = Boolean(getGeminiApiKey());
+    const hasGemini = hasGeminiAccess();
 
     if (people || plates) {
       const { faceModel, objectModel } = await ensureTfModels();
@@ -4981,7 +5025,7 @@ ${lengthBlock}
         } catch (err) {
           console.warn(err);
         }
-        if (plates && getGeminiApiKey() && i < photos.length - 1) await sleep(1200);
+        if (plates && hasGeminiAccess() && i < photos.length - 1) await sleep(1200);
       }
 
       const active = getActivePhoto();
@@ -5274,11 +5318,14 @@ ${lengthBlock}
   geminiApiKey.addEventListener("change", () => {
     saveGeminiApiKey();
     setApiKeyStatus("");
+    updateSharedGeminiHint();
   });
   geminiApiKey.addEventListener("blur", saveGeminiApiKey);
   geminiApiKey.addEventListener("input", () => {
     setApiKeyStatus("");
+    updateSharedGeminiHint();
   });
+  refreshSharedGeminiStatus();
 
   verifyApiKeyBtn.addEventListener("click", () => {
     verifyGeminiApiKey();

@@ -132,16 +132,17 @@
                   <label class="field">
                     <span>Gemini APIキー</span>
                     <div class="name-edit">
-                      <input type="password" id="geminiApiKey" autocomplete="off" placeholder="AIza…（ブラウザにのみ保存）" />
+                      <input type="password" id="geminiApiKey" autocomplete="off" placeholder="未入力なら社内共通キーを使用" />
                       <button type="button" class="btn secondary" id="verifyApiKeyBtn">確認</button>
                     </div>
                   </label>
                   <p class="hint" id="apiKeyStatus"></p>
                   <details class="hint-details">
-                    <summary>APIキーの取得方法</summary>
+                    <summary>APIキーについて</summary>
                     <p class="hint">
+                      社内サーバー（https://lumen.n-kyouei-system.com）では、サーバーの <code>.env</code> に共通キーがあれば入力は不要です。個人キーを入れると、そのブラウザだけ上書きします。キーは
                       <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>
-                      で無料キーを取得できます。写真は生成のため Google に送信されます。
+                      で取得できます。写真は生成のため Google に送信されます。
                     </p>
                   </details>
                   <p class="hint">写真から受ける印象で生成します（定型文に寄せず、文字数上限近くまで使います）</p>
@@ -470,6 +471,6 @@
 
     <div class="toast" id="toast" hidden role="status" aria-live="polite"></div>
 
-    <script src="app.js?v=38"></script>
+    <script src="app.js?v=39"></script>
   </body>
 </html>

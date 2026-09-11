@@ -156,8 +156,9 @@ open -a "Google Chrome" http://127.0.0.1:5173/
 
 ## AI生成（Gemini）
 
+- 社内サーバー: `lumen-photo/.env` の `GEMINI_API_KEY`（ブラウザには出さない。サーバーが中継）
+- 個人キー: 画面の入力欄。ブラウザの `localStorage` にのみ保存（社内共通キーを上書き）
 - APIキー取得: https://aistudio.google.com/apikey
-- キーはブラウザの `localStorage` にのみ保存
 - 「確認」ボタンでキー有効性をチェック（一覧APIのみ・生成はしない）
 - 写真は生成時に Google へ送信される
 - モデル優先: `gemini-2.5-flash` → `gemini-2.0-flash` → lite 系（上限時）
