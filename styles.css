@@ -465,8 +465,20 @@ input {
   cursor: none;
 }
 
+.brush-cursor {
+  position: absolute;
+  z-index: 8;
+  box-sizing: border-box;
+  border: 2px solid rgba(15, 122, 90, 0.95);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.9), 0 0 0 1px rgba(20, 32, 26, 0.45) inset;
+  background: rgba(15, 122, 90, 0.08);
+  pointer-events: none;
+}
+
 .brush-cursor.is-restore {
-  border-color: rgba(220, 90, 60, 0.85);
+  border-color: rgba(220, 90, 60, 0.95);
   background: rgba(220, 90, 60, 0.12);
 }
 

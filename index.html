@@ -12,7 +12,7 @@
       href="https://fonts.googleapis.com/css2?family=Syne:wght@500;700;800&family=IBM+Plex+Sans+JP:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=6" />
+    <link rel="stylesheet" href="styles.css?v=7" />
   </head>
   <body>
     <div class="app">
@@ -410,14 +410,18 @@
 
               <div class="sky-section">
                 <span class="sky-section-title">漏れ補修ブラシ</span>
-                <p class="hint">自動検出で残った空を、なぞって追加できます。</p>
+                <p class="hint">「消す」＋「直線」で屋根や外壁の際を切れます。Shift 押しながらでも直線です。</p>
                 <div class="hide-brush-mode sky-brush-mode" id="skyBrushModePicker" role="group" aria-label="空ブラシモード">
                   <button type="button" class="hide-brush-mode-btn is-active" data-mode="add" aria-pressed="true">追加</button>
                   <button type="button" class="hide-brush-mode-btn" data-mode="erase" aria-pressed="false">消す</button>
                 </div>
+                <div class="hide-brush-mode sky-brush-mode" id="skyStrokePicker" role="group" aria-label="ブラシの線">
+                  <button type="button" class="hide-brush-mode-btn is-active" data-stroke="free" aria-pressed="true">フリー</button>
+                  <button type="button" class="hide-brush-mode-btn" data-stroke="line" aria-pressed="false">直線</button>
+                </div>
                 <label class="field">
-                  <span>ブラシサイズ <em id="skyBrushSizeLabel">56</em></span>
-                  <input type="range" id="skyBrushSize" min="12" max="160" value="56" />
+                  <span>ブラシサイズ <em id="skyBrushSizeLabel">12</em></span>
+                  <input type="range" id="skyBrushSize" min="3" max="80" value="12" />
                 </label>
                 <button type="button" class="btn ghost full" id="skyClearPaintBtn">ブラシで塗った範囲をクリア</button>
               </div>
@@ -425,7 +429,7 @@
               <button type="button" class="btn secondary full" id="skyAutoBtn">自然な青空に置き換え</button>
               <button type="button" class="btn ghost full" id="resetSky">空の編集をリセット</button>
               <button type="button" class="btn secondary full" id="skyApplyAllBtn">全写真に同じ設定</button>
-              <p class="hint">まず自動置き換え → 漏れた所をブラシで追加。電線の隙間も手動で塗れます。</p>
+              <p class="hint">まず自動置き換え → 壁に乗った色は「消す」、電線の隙間は「追加」。</p>
             </div>
             </section>
           </div>
@@ -466,6 +470,6 @@
 
     <div class="toast" id="toast" hidden role="status" aria-live="polite"></div>
 
-    <script src="app.js?v=35"></script>
+    <script src="app.js?v=38"></script>
   </body>
 </html>

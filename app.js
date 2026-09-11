@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const APP_VERSION = "35";
+  const APP_VERSION = "38";
 
   const fileInput = document.getElementById("fileInput");
   const fileHint = document.getElementById("fileHint");
@@ -115,6 +115,7 @@
   const skyApplyAllBtn = document.getElementById("skyApplyAllBtn");
   const skyPresetGrid = document.getElementById("skyPresetGrid");
   const skyBrushModePicker = document.getElementById("skyBrushModePicker");
+  const skyStrokePicker = document.getElementById("skyStrokePicker");
   const skyBrushSize = document.getElementById("skyBrushSize");
   const skyBrushSizeLabel = document.getElementById("skyBrushSizeLabel");
   const skyClearPaintBtn = document.getElementById("skyClearPaintBtn");
@@ -217,6 +218,9 @@
   let activePanelTab = "photos";
   let hideBrushMode = "mosaic";
   let skyBrushMode = "add";
+  let skyStrokeStyle = "free";
+  let skyPaintSnapshot = null;
+  let skyStrokeOrigin = null;
   let painting = false;
   let skyPainting = false;
   let lastPoint = null;
@@ -829,16 +833,10 @@
   const cursor = document.createElement("div");
   cursor.className = "brush-cursor";
   Object.assign(cursor.style, {
-    position: "fixed",
     pointerEvents: "none",
-    border: "2px solid rgba(15, 122, 90, 0.85)",
-    borderRadius: "50%",
-    transform: "translate(-50%, -50%)",
-    zIndex: "50",
     display: "none",
-    mixBlendMode: "difference",
   });
-  document.body.appendChild(cursor);
+  canvasWrap.appendChild(cursor);
 
   function setPanelTab(panel) {
     const tabBtn = document.querySelector(`.panel-tab[data-panel="${panel}"]`);
@@ -3211,12 +3209,12 @@ ${lengthBlock}
 
   function combineSkyMasks(autoMask, paintMask) {
     if (!paintMask) return autoMask;
-    if (!autoMask) return paintMask;
-    const out = new Float32Array(autoMask.length);
-    for (let i = 0; i < autoMask.length; i += 1) {
-      const a = autoMask[i];
-      const p = paintMask[i];
-      out[i] = a > p ? a : p;
+    const n = autoMask?.length || paintMask.length;
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i += 1) {
+      const a = autoMask ? autoMask[i] : 0;
+      const p = paintMask[i] || 0;
+      out[i] = clamp(a + p, 0, 1);
     }
     return out;
   }
@@ -3229,11 +3227,47 @@ ${lengthBlock}
         : null;
     const paint = resolveSkyPaintMask(photo, imageData.width, imageData.height);
     if (!auto && !paint) return null;
-    if (!auto) return paint;
     return combineSkyMasks(auto, paint);
   }
 
+  function getSkyBrushRadius() {
+    return Math.max(1.5, Number(skyBrushSize?.value || 12));
+  }
+
+  function wantsStraightSkyStroke(e) {
+    return skyStrokeStyle === "line" || Boolean(e && e.shiftKey);
+  }
+
+  function distToSegment(px, py, ax, ay, bx, by) {
+    const vx = bx - ax;
+    const vy = by - ay;
+    const len2 = vx * vx + vy * vy;
+    if (len2 < 0.0001) return Math.hypot(px - ax, py - ay);
+    let t = ((px - ax) * vx + (py - ay) * vy) / len2;
+    t = clamp(t, 0, 1);
+    return Math.hypot(px - (ax + t * vx), py - (ay + t * vy));
+  }
+
+  function applySkyBrushCoverage(data, idx, dist, radius, erase) {
+    if (dist > radius) return;
+    let falloff;
+    if (erase) {
+      const hard = Math.max(0.35, radius * 0.55);
+      falloff = dist <= hard ? 1 : 1 - (dist - hard) / Math.max(0.001, radius - hard);
+    } else {
+      falloff = 1 - dist / radius;
+      falloff = falloff * falloff * (3 - 2 * falloff);
+    }
+    falloff = clamp(falloff, 0, 1);
+    if (erase) data[idx] = clamp(data[idx] - falloff, -1, 1);
+    else data[idx] = clamp(data[idx] + falloff, -1, 1);
+  }
+
   function paintSkyAt(x, y) {
+    paintSkyCapsule({ x, y }, { x, y });
+  }
+
+  function paintSkyCapsule(from, to) {
     if (!baseImageData) return;
     const photo = getActivePhoto();
     if (!photo) return;
@@ -3242,52 +3276,41 @@ ${lengthBlock}
     const paint = ensureSkyPaint(photo, w, h);
     if (!paint) return;
     const data = paint.data;
-    const radius = Math.max(4, Number(skyBrushSize?.value || 56));
+    const radius = getSkyBrushRadius();
     const erase = skyBrushMode === "erase";
-    const soft = Math.max(1, radius * 0.65);
-    const x0 = Math.max(0, Math.floor(x - radius));
-    const y0 = Math.max(0, Math.floor(y - radius));
-    const x1 = Math.min(w - 1, Math.ceil(x + radius));
-    const y1 = Math.min(h - 1, Math.ceil(y + radius));
-    const r2 = radius * radius;
+    const x0 = Math.max(0, Math.floor(Math.min(from.x, to.x) - radius));
+    const y0 = Math.max(0, Math.floor(Math.min(from.y, to.y) - radius));
+    const x1 = Math.min(w - 1, Math.ceil(Math.max(from.x, to.x) + radius));
+    const y1 = Math.min(h - 1, Math.ceil(Math.max(from.y, to.y) + radius));
 
     for (let py = y0; py <= y1; py += 1) {
       for (let px = x0; px <= x1; px += 1) {
-        const dx = px - x;
-        const dy = py - y;
-        const d2 = dx * dx + dy * dy;
-        if (d2 > r2) continue;
-        const d = Math.sqrt(d2);
-        let falloff = 1 - d / radius;
-        falloff = falloff * falloff * (3 - 2 * falloff);
-        // 外側をやわらかく
-        if (d > soft) falloff *= 1 - (d - soft) / Math.max(0.001, radius - soft);
-        falloff = clamp(falloff, 0, 1);
-        const idx = py * w + px;
-        if (erase) data[idx] = Math.max(0, data[idx] - falloff);
-        else data[idx] = Math.max(data[idx], falloff);
+        const dist = distToSegment(px + 0.5, py + 0.5, from.x, from.y, to.x, to.y);
+        applySkyBrushCoverage(data, py * w + px, dist, radius, erase);
       }
     }
   }
 
   function strokeSkyBrush(from, to) {
-    const radius = Math.max(4, Number(skyBrushSize?.value || 56));
-    const step = Math.max(3, radius * 0.35);
-    const dx = to.x - from.x;
-    const dy = to.y - from.y;
-    const dist = Math.hypot(dx, dy) || 1;
-    const n = Math.max(1, Math.ceil(dist / step));
-    for (let i = 0; i <= n; i += 1) {
-      const t = i / n;
-      paintSkyAt(from.x + dx * t, from.y + dy * t);
-    }
+    paintSkyCapsule(from, to);
+  }
+
+  function snapshotSkyPaint(photo) {
+    if (!photo?.skyPaint?.data) return null;
+    return new Float32Array(photo.skyPaint.data);
+  }
+
+  function restoreSkyPaint(photo, snapshot) {
+    if (!photo?.skyPaint?.data || !snapshot) return;
+    if (photo.skyPaint.data.length !== snapshot.length) return;
+    photo.skyPaint.data.set(snapshot);
   }
 
   function hasSkyPaint(photo) {
     if (!photo?.skyPaint?.data) return false;
     const data = photo.skyPaint.data;
     for (let i = 0; i < data.length; i += 16) {
-      if (data[i] > 0.02) return true;
+      if (Math.abs(data[i]) > 0.02) return true;
     }
     return false;
   }
@@ -5793,6 +5816,13 @@ ${lengthBlock}
         btn.setAttribute("aria-pressed", active ? "true" : "false");
       });
     }
+    if (skyStrokePicker) {
+      skyStrokePicker.querySelectorAll(".hide-brush-mode-btn").forEach((btn) => {
+        const active = btn.dataset.stroke === skyStrokeStyle;
+        btn.classList.toggle("is-active", active);
+        btn.setAttribute("aria-pressed", active ? "true" : "false");
+      });
+    }
     if (skyBrushSizeLabel && skyBrushSize) {
       skyBrushSizeLabel.textContent = skyBrushSize.value;
     }
@@ -5825,6 +5855,14 @@ ${lengthBlock}
     skyBrushModePicker.querySelectorAll(".hide-brush-mode-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
         skyBrushMode = btn.dataset.mode === "erase" ? "erase" : "add";
+        updateSkyBrushUi();
+      });
+    });
+  }
+  if (skyStrokePicker) {
+    skyStrokePicker.querySelectorAll(".hide-brush-mode-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        skyStrokeStyle = btn.dataset.stroke === "line" ? "line" : "free";
         updateSkyBrushUi();
       });
     });
@@ -6052,9 +6090,15 @@ ${lengthBlock}
         updateSkyLabels();
         persistSkyToActivePhoto();
       }
+      const photo = getActivePhoto();
+      const w = baseImageData.width;
+      const h = baseImageData.height;
+      ensureSkyPaint(photo, w, h);
+      lastPoint = getCanvasPoint(e);
+      skyStrokeOrigin = lastPoint;
+      skyPaintSnapshot = wantsStraightSkyStroke(e) ? snapshotSkyPaint(photo) : null;
       skyPainting = true;
       painting = true;
-      lastPoint = getCanvasPoint(e);
       paintSkyAt(lastPoint.x, lastPoint.y);
       scheduleRenderEffects();
       return;
@@ -6139,16 +6183,26 @@ ${lengthBlock}
       const clientX = "touches" in e ? e.touches[0]?.clientX : e.clientX;
       const clientY = "touches" in e ? e.touches[0]?.clientY : e.clientY;
       if (clientX != null) {
-        const size = Number(activeTool === "sky" ? skyBrushSize?.value || 56 : brushSize.value);
-        const rect = canvas.getBoundingClientRect();
-        const scale = rect.width / canvas.width;
-        cursor.style.display = "block";
-        cursor.style.width = `${size * scale}px`;
-        cursor.style.height = `${size * scale}px`;
-        cursor.style.left = `${clientX}px`;
-        cursor.style.top = `${clientY}px`;
-        cursor.classList.toggle("is-sky-erase", activeTool === "sky" && skyBrushMode === "erase");
-        cursor.classList.toggle("is-restore", activeTool === "hide" && hideBrushMode === "restore");
+        const wrapRect = canvasWrap.getBoundingClientRect();
+        const inside =
+          clientX >= wrapRect.left &&
+          clientX <= wrapRect.right &&
+          clientY >= wrapRect.top &&
+          clientY <= wrapRect.bottom;
+        if (!inside) {
+          cursor.style.display = "none";
+        } else {
+          const size = Number(activeTool === "sky" ? skyBrushSize?.value || 12 : brushSize.value);
+          const canvasRect = canvas.getBoundingClientRect();
+          const scale = canvasRect.width / Math.max(1, canvas.width);
+          cursor.style.display = "block";
+          cursor.style.width = `${Math.max(8, size * scale)}px`;
+          cursor.style.height = `${Math.max(8, size * scale)}px`;
+          cursor.style.left = `${clientX - wrapRect.left}px`;
+          cursor.style.top = `${clientY - wrapRect.top}px`;
+          cursor.classList.toggle("is-sky-erase", activeTool === "sky" && skyBrushMode === "erase");
+          cursor.classList.toggle("is-restore", activeTool === "hide" && hideBrushMode === "restore");
+        }
       }
     }
 
@@ -6156,8 +6210,15 @@ ${lengthBlock}
     if (activeTool === "sky") {
       e.preventDefault();
       const point = getCanvasPoint(e);
-      strokeSkyBrush(lastPoint, point);
-      lastPoint = point;
+      const photo = getActivePhoto();
+      if (wantsStraightSkyStroke(e) && skyStrokeOrigin) {
+        if (!skyPaintSnapshot) skyPaintSnapshot = snapshotSkyPaint(photo);
+        restoreSkyPaint(photo, skyPaintSnapshot);
+        strokeSkyBrush(skyStrokeOrigin, point);
+      } else {
+        strokeSkyBrush(lastPoint, point);
+        lastPoint = point;
+      }
       scheduleRenderEffects();
       return;
     }
@@ -6183,6 +6244,8 @@ ${lengthBlock}
     skyPainting = false;
     painting = false;
     lastPoint = null;
+    skyPaintSnapshot = null;
+    skyStrokeOrigin = null;
     panning = false;
     panStart = null;
     cropDrag = null;
@@ -6218,7 +6281,7 @@ ${lengthBlock}
   canvasWrap.addEventListener("mousedown", onPointerDown);
   window.addEventListener("mousemove", movePointer);
   window.addEventListener("mouseup", endPointer);
-  canvas.addEventListener("mouseleave", () => {
+  canvasWrap.addEventListener("mouseleave", () => {
     cursor.style.display = "none";
   });
   canvasWrap.addEventListener(
