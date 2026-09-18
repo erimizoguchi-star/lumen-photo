@@ -12,7 +12,7 @@
       href="https://fonts.googleapis.com/css2?family=Syne:wght@500;700;800&family=IBM+Plex+Sans+JP:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=7" />
+    <link rel="stylesheet" href="styles.css?v=11" />
   </head>
   <body>
     <div class="app">
@@ -121,10 +121,21 @@
                   <span>カテゴリ（生成前に選択）</span>
                   <select id="captionCategory"></select>
                 </label>
+                <label class="field" id="captionCategoryCustomField" hidden>
+                  <span>カテゴリを手入力</span>
+                  <input type="text" id="captionCategoryCustom" maxlength="24" autocomplete="off" placeholder="例）エントランス、共用廊下" />
+                  <p class="hint">一覧にない場合はここに入力してください（AI生成の視点になります）</p>
+                </label>
+
+                <label class="field">
+                  <span>アピールポイント・キーワード（任意）</span>
+                  <textarea id="captionKeywords" rows="2" maxlength="120" placeholder="例）南向き、角部屋、対面キッチン、ペット可"></textarea>
+                  <p class="hint">AI生成時に、写真と矛盾しない範囲で自然に織り込みます（カンマや読点区切り可）</p>
+                </label>
 
                 <details class="hint-details">
                   <summary>カテゴリの選び方</summary>
-                  <p class="hint">先にカテゴリを選ぶと、写真の見方を絞れてコメントが的確になります。</p>
+                  <p class="hint">先にカテゴリを選ぶと、写真の見方を絞れてコメントが的確になります。一覧にないときは「手入力」を選んでください。</p>
                 </details>
 
                 <div class="ai-box">
@@ -232,7 +243,16 @@
                   <button type="button" class="export-preset-btn" data-preset="iri-thumb" aria-pressed="false">見出写真</button>
                   <button type="button" class="export-preset-btn is-active" data-preset="iri-photo" aria-pressed="true">物件写真</button>
                 </div>
+                <div class="iri-apply-choice" id="iriApplyChoice" hidden>
+                  <p class="iri-apply-title" id="iriApplyTitle">どこに適用しますか？</p>
+                  <div class="iri-apply-actions">
+                    <button type="button" class="btn primary full" id="iriApplyOneBtn">この写真だけ</button>
+                    <button type="button" class="btn secondary full" id="iriApplyAllBtn">すべての写真</button>
+                    <button type="button" class="btn ghost full" id="iriApplySettingsOnlyBtn">設定のみ（あとで適用）</button>
+                  </div>
+                </div>
                 <p class="hint" id="exportPresetHint">IRI公式ガイドラインに基づくサイズです</p>
+                <p class="hint">物件写真は横長→800×600、縦長→600×800（写真ごとに自動判別）。複数枚あるときは適用範囲を選べます。</p>
                 <p class="hint">
                   <a href="https://www.iri.ne.jp/kensaku/member/info_supo/images/Guideline.pdf" target="_blank" rel="noopener noreferrer">IRI 画像ガイドライン（PDF）</a>
                 </p>
@@ -307,7 +327,7 @@
             </div>
 
             <div class="tool-pane" data-pane="hide">
-              <p class="pane-desc">不要な部分をなぞると、大きめのモザイクで隠します。</p>
+              <p class="pane-desc">不要な部分をなぞると、ぼかしで隠します。</p>
               <label class="field">
                 <span>ブラシのモード</span>
                 <div class="hide-brush-mode" id="hideBrushModePicker" role="group" aria-label="ブラシのモード">
@@ -316,17 +336,24 @@
                 </div>
               </label>
               <label class="field">
+                <span>ブラシの形</span>
+                <div class="hide-brush-mode" id="hideBrushShapePicker" role="group" aria-label="ブラシの形">
+                  <button type="button" class="hide-brush-mode-btn is-active" data-shape="round" aria-pressed="true">丸</button>
+                  <button type="button" class="hide-brush-mode-btn" data-shape="square" aria-pressed="false">四角</button>
+                </div>
+              </label>
+              <label class="field">
                 <span>ブラシサイズ <em id="brushSizeLabel">48</em></span>
                 <input type="range" id="brushSize" min="16" max="120" value="48" />
               </label>
               <label class="field">
-                <span>モザイクサイズ <em id="mosaicSizeLabel">28</em>px</span>
+                <span>ぼかしの強さ <em id="mosaicSizeLabel">28</em>px</span>
                 <input type="range" id="mosaicSize" min="12" max="64" value="28" />
               </label>
-              <p class="hint">隠す＝モザイク／復元＝かけ過ぎた部分だけ元に戻す。二本指で移動・ピンチで拡大。</p>
+              <p class="hint">隠す＝ぼかし／復元＝かけ過ぎた部分だけ元に戻す。ブラシの形は丸・四角を選べます。二本指で移動・ピンチで拡大。</p>
 
               <div class="batch-box auto-mosaic-box">
-                <p class="pane-desc">自動モザイク</p>
+                <p class="pane-desc">自動ぼかし</p>
                 <label class="check">
                   <input type="checkbox" id="autoDetectPeople" checked />
                   <span>人物（顔）</span>
@@ -335,13 +362,13 @@
                   <input type="checkbox" id="autoDetectPlates" checked />
                   <span>車のナンバー</span>
                 </label>
-                <button type="button" class="btn primary full" id="autoMosaicBtn">検知してモザイク</button>
-                <button type="button" class="btn secondary full" id="autoMosaicAllBtn">全写真に自動モザイク</button>
-                <button type="button" class="btn ghost full" id="undoMosaicBtn" disabled>モザイクを元に戻す</button>
+                <button type="button" class="btn primary full" id="autoMosaicBtn">検知してぼかす</button>
+                <button type="button" class="btn secondary full" id="autoMosaicAllBtn">全写真に自動ぼかし</button>
+                <button type="button" class="btn ghost full" id="undoMosaicBtn" disabled>ぼかしを元に戻す</button>
                 <p class="hint" id="autoMosaicStatus">
                   ナンバーはプレート本体のみ検知（Geminiキーあり推奨）。車体への誤検知を抑えています。初回はモデル読込に時間がかかります。
                 </p>
-                <p class="hint">手動・自動モザイクの直前の状態に戻せます。復元ブラシで一部だけ直すこともできます。</p>
+                <p class="hint">手動・自動ぼかしの直前の状態に戻せます。復元ブラシで一部だけ直すこともできます。</p>
               </div>
             </div>
 
@@ -471,6 +498,6 @@
 
     <div class="toast" id="toast" hidden role="status" aria-live="polite"></div>
 
-    <script src="app.js?v=40"></script>
+    <script src="app.js?v=46"></script>
   </body>
 </html>

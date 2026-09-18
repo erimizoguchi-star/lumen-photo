@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const APP_VERSION = "40";
+  const APP_VERSION = "46";
 
   const fileInput = document.getElementById("fileInput");
   const fileHint = document.getElementById("fileHint");
@@ -37,6 +37,9 @@
   const captionBox = document.getElementById("captionBox");
   const captionEmpty = document.getElementById("captionEmpty");
   const captionCategory = document.getElementById("captionCategory");
+  const captionCategoryCustomField = document.getElementById("captionCategoryCustomField");
+  const captionCategoryCustom = document.getElementById("captionCategoryCustom");
+  const captionKeywords = document.getElementById("captionKeywords");
   const captionTemplate = document.getElementById("captionTemplate");
   const captionInput = document.getElementById("captionInput");
   const captionPrefixPicker = document.getElementById("captionPrefixPicker");
@@ -75,6 +78,11 @@
   const batchResizeDownloadBtn = document.getElementById("batchResizeDownloadBtn");
   const exportPresetPicker = document.getElementById("exportPresetPicker");
   const exportPresetHint = document.getElementById("exportPresetHint");
+  const iriApplyChoice = document.getElementById("iriApplyChoice");
+  const iriApplyTitle = document.getElementById("iriApplyTitle");
+  const iriApplyOneBtn = document.getElementById("iriApplyOneBtn");
+  const iriApplyAllBtn = document.getElementById("iriApplyAllBtn");
+  const iriApplySettingsOnlyBtn = document.getElementById("iriApplySettingsOnlyBtn");
 
   const brushSize = document.getElementById("brushSize");
   const brushSizeLabel = document.getElementById("brushSizeLabel");
@@ -86,6 +94,7 @@
   const autoMosaicAllBtn = document.getElementById("autoMosaicAllBtn");
   const undoMosaicBtn = document.getElementById("undoMosaicBtn");
   const hideBrushModePicker = document.getElementById("hideBrushModePicker");
+  const hideBrushShapePicker = document.getElementById("hideBrushShapePicker");
   const autoMosaicStatus = document.getElementById("autoMosaicStatus");
 
   const brightness = document.getElementById("brightness");
@@ -217,6 +226,7 @@
   let activeTool = "resize";
   let activePanelTab = "photos";
   let hideBrushMode = "mosaic";
+  let hideBrushShape = "round";
   let skyBrushMode = "add";
   let skyStrokeStyle = "free";
   let skyPaintSnapshot = null;
@@ -305,8 +315,13 @@
       minW: 400,
       minH: 400,
       maxBytes: 250 * 1024,
-      hint: "400〜800px・250KB以内（外観・追加・間取・地図等）",
+      hint: "横長800×600／縦長600×800・250KB以内（外観・追加・間取・地図等）",
       allowUpscale: true,
+      fitMode: "cover",
+      orientationSize: {
+        landscape: { w: 800, h: 600 },
+        portrait: { w: 600, h: 800 },
+      },
     },
   };
 
@@ -808,8 +823,59 @@
     return getPropertyTypeConfig().templates;
   }
 
+  const CUSTOM_CATEGORY_VALUE = "__custom__";
+
+  function normalizeCaptionCategory(value) {
+    return String(value || "").trim().replace(/\s+/g, " ").slice(0, 24);
+  }
+
+  function isCustomCategoryUi() {
+    return captionCategory?.value === CUSTOM_CATEGORY_VALUE;
+  }
+
+  function getUiCaptionCategory() {
+    if (isCustomCategoryUi()) {
+      return normalizeCaptionCategory(captionCategoryCustom?.value || "");
+    }
+    return normalizeCaptionCategory(captionCategory?.value || "");
+  }
+
+  function updateCaptionCategoryCustomVisibility() {
+    const show = isCustomCategoryUi();
+    if (captionCategoryCustomField) captionCategoryCustomField.hidden = !show;
+  }
+
+  function setUiCaptionCategory(category) {
+    const value = normalizeCaptionCategory(category);
+    const categories = getCaptionCategories();
+    if (!value) {
+      captionCategory.value = "";
+      if (captionCategoryCustom) captionCategoryCustom.value = "";
+      updateCaptionCategoryCustomVisibility();
+      return;
+    }
+    if (categories.includes(value)) {
+      captionCategory.value = value;
+      if (captionCategoryCustom) captionCategoryCustom.value = "";
+      updateCaptionCategoryCustomVisibility();
+      return;
+    }
+    captionCategory.value = CUSTOM_CATEGORY_VALUE;
+    if (captionCategoryCustom) captionCategoryCustom.value = value;
+    updateCaptionCategoryCustomVisibility();
+  }
+
+  function templatesForCategory(category) {
+    const templates = getCaptionTemplates();
+    if (templates[category]) return templates[category];
+    if (category && !getCaptionCategories().includes(category)) {
+      return templates["その他"] || [];
+    }
+    return [];
+  }
+
   function rebuildCaptionCategories(preserveValue = true) {
-    const prev = preserveValue ? captionCategory.value : "";
+    const prev = preserveValue ? getUiCaptionCategory() : "";
     const categories = getCaptionCategories();
     captionCategory.innerHTML = "";
     const empty = document.createElement("option");
@@ -822,12 +888,12 @@
       opt.textContent = name;
       captionCategory.append(opt);
     });
-    if (prev && categories.includes(prev)) {
-      captionCategory.value = prev;
-    } else {
-      captionCategory.value = "";
-    }
-    fillCaptionTemplates(captionCategory.value);
+    const custom = document.createElement("option");
+    custom.value = CUSTOM_CATEGORY_VALUE;
+    custom.textContent = "手入力（一覧にない場合）";
+    captionCategory.append(custom);
+    setUiCaptionCategory(prev);
+    fillCaptionTemplates(getUiCaptionCategory());
   }
 
   const cursor = document.createElement("div");
@@ -1025,7 +1091,7 @@
       : "先にカテゴリを選んでください";
     captionTemplate.append(placeholder);
 
-    const list = getCaptionTemplates()[category] || [];
+    const list = templatesForCategory(category);
     list.forEach((text, i) => {
       const body = clampCaptionBody(stripCaptionPrefix(text));
       if (!body) return;
@@ -1104,7 +1170,7 @@
       persistCaptionFromUi();
     }
     updateCaptionCount();
-    if (captionCategory) fillCaptionTemplates(captionCategory.value || "");
+    if (captionCategory) fillCaptionTemplates(getUiCaptionCategory());
     if (photos.length) renderGallery();
   }
 
@@ -1144,7 +1210,7 @@
     if (!photo) {
       captionBox.hidden = true;
       if (captionEmpty) captionEmpty.hidden = false;
-      captionCategory.value = "";
+      setUiCaptionCategory("");
       captionInput.value = "";
       fillCaptionTemplates("");
       updateCaptionCount();
@@ -1152,7 +1218,7 @@
     }
     captionBox.hidden = false;
     if (captionEmpty) captionEmpty.hidden = true;
-    captionCategory.value = photo.captionCategory || "";
+    setUiCaptionCategory(photo.captionCategory || "");
     captionInput.value = clampCaptionBody(stripCaptionPrefix(photo.caption || ""));
     fillCaptionTemplates(photo.captionCategory || "");
     updateCaptionCount();
@@ -1161,7 +1227,7 @@
   function persistCaptionFromUi() {
     const photo = getActivePhoto();
     if (!photo) return;
-    photo.captionCategory = captionCategory.value || "";
+    photo.captionCategory = getUiCaptionCategory();
     photo.caption = clampCaptionBody(stripCaptionPrefix(captionInput.value));
     if (captionInput.value !== photo.caption) {
       captionInput.value = photo.caption;
@@ -1172,7 +1238,7 @@
   function applyCaptionTemplate() {
     const photo = getActivePhoto();
     if (!photo) return;
-    const category = captionCategory.value;
+    const category = getUiCaptionCategory();
     const body = captionTemplate.value;
     if (!category || !body) return;
     const next = clampCaptionBody(stripCaptionPrefix(body));
@@ -1227,6 +1293,7 @@
 
   const GEMINI_KEY_STORAGE = "lumen-gemini-api-key";
   const PROPERTY_ADDRESS_STORAGE = "lumen-property-address";
+  const CAPTION_KEYWORDS_STORAGE = "lumen-caption-keywords";
   const WATERMARK_STORAGE = "lumen-watermark-enabled";
   const OVERWRITE_STORAGE = "lumen-overwrite-existing";
   const WATERMARK_POS_STORAGE = "lumen-watermark-position";
@@ -1580,10 +1647,31 @@
     else localStorage.removeItem(PROPERTY_ADDRESS_STORAGE);
   }
 
+  function getCaptionKeywords() {
+    return normalizeCaptionKeywords(captionKeywords?.value || "");
+  }
+
+  function normalizeCaptionKeywords(value) {
+    return String(value || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 120);
+  }
+
+  function saveCaptionKeywords() {
+    const value = getCaptionKeywords();
+    if (captionKeywords && captionKeywords.value !== value) {
+      captionKeywords.value = value;
+    }
+    if (value) localStorage.setItem(CAPTION_KEYWORDS_STORAGE, value);
+    else localStorage.removeItem(CAPTION_KEYWORDS_STORAGE);
+  }
+
   function buildCaptionPrompt(hintCategory, photoName = "") {
     const typeConfig = getPropertyTypeConfig();
     const categories = getCaptionCategories().join(" / ");
     const address = getPropertyAddress();
+    const keywords = getCaptionKeywords();
     const bodyMax = getCaptionBodyMax();
     const minAim = Math.max(8, Math.floor(bodyMax * 0.85));
     const addressBlock = address
@@ -1593,6 +1681,16 @@
 - 「徒歩○分」「○m」など正確な数値は書かない
 - 室内カテゴリのときは住所より写真の印象を優先する`
       : `物件住所: （未入力）`;
+
+    const keywordsBlock = keywords
+      ? `アピールポイント・キーワード: ${keywords}
+※キーワードがある場合（最重要）:
+- 写真と矛盾しないものを優先して、caption に自然に織り込む
+- 写っていない設備・特徴は、キーワードにあっても書かない
+- 全部を無理に入れず、カテゴリと写真に合う 1〜2 個を選ぶ
+- 単語の羅列にせず、読みやすいフレーズの中に溶かす
+- キーワードだけで埋めず、写真の印象（光・広がり・質感など）も残す`
+      : `アピールポイント・キーワード: （未入力）`;
 
     const categoryBlock = hintCategory
       ? `指定カテゴリ: ${hintCategory}
@@ -1629,6 +1727,7 @@ ${visualHint}`;
 - 写真を見た人が感じる印象・雰囲気を、写っている事実に基づいて言葉にする
 - 設備名の羅列ではなく、「明るさ」「開放感」「清潔感」「落ち着き」「広がり」など視覚的な印象を優先する
 - 写っていない設備・特徴は絶対に書かない
+- 指定キーワードがある場合は、事実と矛盾しない範囲で積極的に反映する
 
 物件種別: ${typeConfig.label}
 種別の注意: ${typeConfig.focus}
@@ -1637,14 +1736,16 @@ ${categoryBlock}
 ${visualBlock}
 ${fileBlock}
 ${addressBlock}
+${keywordsBlock}
 
 ${lengthBlock}
 
 作業手順（必ず守る）:
 1. 写真に実際に写っているものと、そこから受ける印象を observation に書く
-2. observation を根拠に caption を1つ作る（印象語は写真の見た目と矛盾しないこと）
-3. 写っていない設備・特徴は caption に入れない（例: 食洗機が見えなければ「食洗機付き」と書かない）
-4. caption は可能な限り ${bodyMax} 文字ちょうどに近づける
+2. キーワードがある場合は、写真と矛盾しないものを選び、observation にも触れる
+3. observation を根拠に caption を1つ作る（印象語は写真の見た目と矛盾しないこと）
+4. 写っていない設備・特徴は caption に入れない（例: 食洗機が見えなければ「食洗機付き」と書かない）
+5. caption は可能な限り ${bodyMax} 文字ちょうどに近づける
 
 出力ルール:
 1. 出力は日本語のJSONオブジェクトのみ。英語の説明文・前置き・コードフェンスは禁止
@@ -1671,9 +1772,9 @@ ${lengthBlock}
   }
 
   function pickFallbackCaption(category) {
-    const list = (getCaptionTemplates()[category] || getCaptionTemplates()["その他"] || []).map((t) =>
-      clampCaptionBody(stripCaptionPrefix(t))
-    ).filter(Boolean);
+    const list = templatesForCategory(category || "")
+      .map((t) => clampCaptionBody(stripCaptionPrefix(t)))
+      .filter(Boolean);
     if (!list.length) {
       return clampCaptionBody("写真から清潔感と使いやすさが伝わる");
     }
@@ -1860,10 +1961,18 @@ ${lengthBlock}
     const draft = clampCaptionBody(stripCaptionPrefix(draftCaption));
     if (charLen(draft) >= Math.floor(bodyMax * 0.9)) return draft;
 
+    const keywords = getCaptionKeywords();
+    const keywordsLine = keywords
+      ? `アピールポイント・キーワード: ${keywords}
+- 写真と矛盾しないキーワードは、伸ばすときに自然に織り込んでよい
+- 写っていない設備はキーワードにあっても追加しない`
+      : `アピールポイント・キーワード: （未入力）`;
+
     const prompt = `次の不動産写真キャプションを、写真の印象に合わせて自然に伸ばしてください。
 
 現在のcaption: ${draft}
 指定カテゴリ: ${hintCategory || "（なし）"}
+${keywordsLine}
 目標文字数: 本文ちょうど ${bodyMax} 文字（最低でも ${Math.floor(bodyMax * 0.9)} 文字）
 
 ルール:
@@ -1925,7 +2034,7 @@ ${lengthBlock}
     if (!hasGeminiAccess()) throw new Error(geminiMissingKeyMessage());
 
     const category =
-      (syncUi ? captionCategory.value : "") ||
+      (syncUi ? getUiCaptionCategory() : "") ||
       photo.captionCategory ||
       "";
     if (requireCategory && !category) {
@@ -1968,7 +2077,7 @@ ${lengthBlock}
     photo.caption = clampCaptionBody(caption);
 
     if (syncUi && photo.id === activePhotoId) {
-      captionCategory.value = photo.captionCategory;
+      setUiCaptionCategory(photo.captionCategory);
       captionInput.value = photo.caption;
       fillCaptionTemplates(photo.captionCategory);
       updateCaptionCount();
@@ -1980,11 +2089,16 @@ ${lengthBlock}
     const photo = getActivePhoto();
     if (!photo) return;
     persistCaptionFromUi();
-    if (!captionCategory.value) {
-      const msg = "先にカテゴリを選んでから生成してください";
+    saveCaptionKeywords();
+    const selectedCategory = getUiCaptionCategory();
+    if (!selectedCategory) {
+      const msg = isCustomCategoryUi()
+        ? "手入力カテゴリを入力してから生成してください"
+        : "先にカテゴリを選んでから生成してください";
       setAiStatus(msg, true);
       notifyError(msg);
-      captionCategory.focus();
+      if (isCustomCategoryUi()) captionCategoryCustom?.focus();
+      else captionCategory.focus();
       return;
     }
 
@@ -1993,7 +2107,7 @@ ${lengthBlock}
     generateCaptionBtn.disabled = true;
     generateAllCaptionsBtn.disabled = true;
     generateCaptionBtn.textContent = "生成中…";
-    setAiStatus(`「${captionCategory.value}」として生成中…`);
+    setAiStatus(`「${selectedCategory}」として生成中…`);
 
     try {
       const result = await generateCaptionForPhoto(photo, { syncUi: true, requireCategory: true });
@@ -2020,6 +2134,7 @@ ${lengthBlock}
   async function generateAllCaptions() {
     if (!photos.length) return;
     persistCaptionFromUi();
+    saveCaptionKeywords();
     saveGeminiApiKey();
     if (!hasGeminiAccess()) {
       notifyError(geminiMissingKeyMessage());
@@ -2028,8 +2143,8 @@ ${lengthBlock}
     }
 
     const missing = photos.filter((p) => {
-      const cat = p.id === activePhotoId ? captionCategory.value || p.captionCategory : p.captionCategory;
-      return !cat;
+      const cat = p.id === activePhotoId ? getUiCaptionCategory() || p.captionCategory : p.captionCategory;
+      return !normalizeCaptionCategory(cat);
     });
     if (missing.length) {
       const msg = `カテゴリ未設定が ${missing.length} 枚あります。各写真でカテゴリを選んでから全生成してください`;
@@ -2051,7 +2166,7 @@ ${lengthBlock}
         const photo = photos[i];
         const cat =
           photo.id === activePhotoId
-            ? captionCategory.value || photo.captionCategory
+            ? getUiCaptionCategory() || photo.captionCategory
             : photo.captionCategory;
         generateAllCaptionsBtn.textContent = `${i + 1}/${photos.length}`;
         setAiStatus(`生成中… ${i + 1}/${photos.length}（${cat} / ${photo.name}）`);
@@ -2249,7 +2364,7 @@ ${lengthBlock}
     photoNameInput.value = "";
     captionBox.hidden = true;
     if (captionEmpty) captionEmpty.hidden = false;
-    captionCategory.value = "";
+    setUiCaptionCategory("");
     captionInput.value = "";
     fillCaptionTemplates("");
     renderGallery();
@@ -2347,6 +2462,8 @@ ${lengthBlock}
   function clearListingInfo({ silent = false } = {}) {
     propertyAddress.value = "";
     savePropertyAddress();
+    if (captionKeywords) captionKeywords.value = "";
+    saveCaptionKeywords();
     propertyType.value = "mansion";
     localStorage.setItem(PROPERTY_TYPE_STORAGE, "mansion");
     rebuildCaptionCategories(false);
@@ -2364,14 +2481,14 @@ ${lengthBlock}
       fileHint.textContent = active.name;
     } else {
       photoNameInput.value = "";
-      captionCategory.value = "";
+      setUiCaptionCategory("");
       captionInput.value = "";
       fillCaptionTemplates("");
       updateCaptionCount();
     }
 
     renderGallery();
-    if (!silent) showToast("住所・名前・キャプションをクリアしました");
+    if (!silent) showToast("住所・キーワード・名前・キャプションをクリアしました");
   }
 
   function returnToHomeScreen() {
@@ -3519,13 +3636,17 @@ ${lengthBlock}
     return canvas;
   }
 
-  function scaleImageData(data, targetW, targetH) {
+  function scaleImageData(data, targetW, targetH, fitMode = "stretch") {
     if (data.width === targetW && data.height === targetH) return data;
-    const scaled = resizeCanvasHighQualitySync(imageDataToCanvas(data), targetW, targetH);
+    const source = imageDataToCanvas(data);
+    const scaled =
+      fitMode === "cover"
+        ? resizeCanvasCoverSync(source, targetW, targetH)
+        : resizeCanvasHighQualitySync(source, targetW, targetH);
     return scaled.getContext("2d").getImageData(0, 0, targetW, targetH);
   }
 
-  function scaleCanvasToExport(source, w, h) {
+  function scaleCanvasToExport(source, w, h, fitMode = "stretch") {
     const temp = document.createElement("canvas");
     temp.width = w;
     temp.height = h;
@@ -3534,11 +3655,12 @@ ${lengthBlock}
     tctx.fillRect(0, 0, w, h);
     tctx.imageSmoothingEnabled = true;
     tctx.imageSmoothingQuality = "high";
-    tctx.drawImage(source, 0, 0, source.width, source.height, 0, 0, w, h);
+    if (fitMode === "cover") drawImageCover(tctx, source, w, h);
+    else tctx.drawImage(source, 0, 0, source.width, source.height, 0, 0, w, h);
     return temp;
   }
 
-  function canvasFromSourceImage(photo, w, h) {
+  function canvasFromSourceImage(photo, w, h, fitMode = "stretch") {
     const temp = document.createElement("canvas");
     temp.width = w;
     temp.height = h;
@@ -3547,7 +3669,8 @@ ${lengthBlock}
     tctx.fillRect(0, 0, w, h);
     tctx.imageSmoothingEnabled = true;
     tctx.imageSmoothingQuality = "high";
-    tctx.drawImage(photo.sourceImage, 0, 0, w, h);
+    if (fitMode === "cover") drawImageCover(tctx, photo.sourceImage, w, h);
+    else tctx.drawImage(photo.sourceImage, 0, 0, w, h);
     return temp;
   }
 
@@ -3569,10 +3692,10 @@ ${lengthBlock}
 
   async function buildWatermarkOnlyExportCanvas(photo, { watermark = true } = {}) {
     const img = photo.sourceImage;
-    const { w, h } = resolveTargetSize(img.naturalWidth, img.naturalHeight);
+    const { w, h, fitMode } = resolveTargetSize(img.naturalWidth, img.naturalHeight);
     const { bright } = getPhotoAdjustments(photo);
     await yieldToUi();
-    const temp = canvasFromSourceImage(photo, w, h);
+    const temp = canvasFromSourceImage(photo, w, h, fitMode);
     if (bright !== 0) {
       applyBrightnessToCanvas(temp, bright);
     }
@@ -3582,8 +3705,11 @@ ${lengthBlock}
     return temp;
   }
 
-  async function scaleImageDataForExport(data, targetW, targetH) {
+  async function scaleImageDataForExport(data, targetW, targetH, fitMode = "stretch") {
     await yieldToUi();
+    if (fitMode === "cover") {
+      return resizeCanvasCoverSync(imageDataToCanvas(data), targetW, targetH);
+    }
     let cur = imageDataToCanvas(data);
     let cw = cur.width;
     let ch = cur.height;
@@ -3601,7 +3727,7 @@ ${lengthBlock}
       await yieldToUi();
     }
     if (cw === targetW && ch === targetH) return cur;
-    return scaleCanvasToExport(cur, targetW, targetH);
+    return scaleCanvasToExport(cur, targetW, targetH, fitMode);
   }
 
   async function buildExportCanvas(photo, { watermark = true } = {}) {
@@ -3613,15 +3739,15 @@ ${lengthBlock}
     if (!data) return null;
 
     const { bright, contrastVal, skyOpts } = getPhotoAdjustments(photo);
-    const { w, h } = resolveTargetSize(data.width, data.height);
+    const { w, h, fitMode } = resolveTargetSize(data.width, data.height);
 
     await yieldToUi();
 
     let temp;
     if (!needsLitProcessing(bright, contrastVal, skyOpts, photo)) {
-      temp = await scaleImageDataForExport(data, w, h);
+      temp = await scaleImageDataForExport(data, w, h, fitMode);
     } else {
-      const workingData = scaleImageData(data, w, h);
+      const workingData = scaleImageData(data, w, h, fitMode);
       await yieldToUi();
       const out = new ImageData(w, h);
       await processLitPixelsAsync(workingData, out.data, bright, contrastVal, skyOpts, photo);
@@ -4073,6 +4199,20 @@ ${lengthBlock}
     updateHideBrushUi();
   }
 
+  function setHideBrushShape(shape) {
+    hideBrushShape = shape === "square" ? "square" : "round";
+    updateHideBrushUi();
+  }
+
+  function isHideBrushInShape(px, py, x, y, radius) {
+    if (hideBrushShape === "square") {
+      return Math.abs(px - x) <= radius && Math.abs(py - y) <= radius;
+    }
+    const dx = px - x;
+    const dy = py - y;
+    return dx * dx + dy * dy <= radius * radius;
+  }
+
   function updateHideBrushUi() {
     const canRestore = canUndoMosaic(getActivePhoto());
     if (hideBrushMode === "restore" && !canRestore) {
@@ -4087,12 +4227,20 @@ ${lengthBlock}
         btn.setAttribute("aria-pressed", active ? "true" : "false");
       });
     }
+    if (hideBrushShapePicker) {
+      hideBrushShapePicker.querySelectorAll(".hide-brush-mode-btn").forEach((btn) => {
+        const active = btn.dataset.shape === hideBrushShape;
+        btn.classList.toggle("is-active", active);
+        btn.setAttribute("aria-pressed", active ? "true" : "false");
+      });
+    }
     if (mosaicSize) {
       mosaicSize.disabled = hideBrushMode === "restore";
       mosaicSize.closest(".field")?.classList.toggle("is-disabled", hideBrushMode === "restore");
     }
     canvas.classList.toggle("tool-hide-restore", activeTool === "hide" && hideBrushMode === "restore");
     cursor.classList.toggle("is-restore", hideBrushMode === "restore");
+    cursor.classList.toggle("is-square", activeTool === "hide" && hideBrushShape === "square");
   }
 
   function getPreMosaicSource(photo) {
@@ -4122,61 +4270,82 @@ ${lengthBlock}
     return true;
   }
 
+  function blurRadiusFromControl(override) {
+    const raw = override != null ? Number(override) : Number(mosaicSize.value);
+    return Math.max(4, Math.round(Number.isFinite(raw) ? raw : 28));
+  }
+
+  /**
+   * 指定領域をぼかして書き戻す。maskFn(px, py) がある場合はその点だけ反映。
+   * Canvas filter の blur を使い、モザイクより自然な隠ぺいにする。
+   */
+  function blurImageDataRegion(imageData, rx, ry, rw, rh, blurPx, maskFn) {
+    if (!imageData || rw <= 0 || rh <= 0 || blurPx <= 0) return;
+    const w = imageData.width;
+    const h = imageData.height;
+    const pad = Math.ceil(blurPx * 2.5);
+    const x0 = Math.max(0, Math.floor(rx) - pad);
+    const y0 = Math.max(0, Math.floor(ry) - pad);
+    const x1 = Math.min(w, Math.ceil(rx + rw) + pad);
+    const y1 = Math.min(h, Math.ceil(ry + rh) + pad);
+    const tw = x1 - x0;
+    const th = y1 - y0;
+    if (tw <= 0 || th <= 0) return;
+
+    const srcData = imageData.data;
+    const patch = new ImageData(tw, th);
+    const patchData = patch.data;
+    for (let py = 0; py < th; py += 1) {
+      const srcRow = ((y0 + py) * w + x0) * 4;
+      const dstRow = py * tw * 4;
+      patchData.set(srcData.subarray(srcRow, srcRow + tw * 4), dstRow);
+    }
+
+    const srcCanvas = document.createElement("canvas");
+    srcCanvas.width = tw;
+    srcCanvas.height = th;
+    srcCanvas.getContext("2d").putImageData(patch, 0, 0);
+
+    const region = document.createElement("canvas");
+    region.width = tw;
+    region.height = th;
+    const rctx = region.getContext("2d");
+    rctx.filter = `blur(${blurPx}px)`;
+    rctx.drawImage(srcCanvas, 0, 0);
+    const blurred = rctx.getImageData(0, 0, tw, th);
+
+    const dst = imageData.data;
+    const src = blurred.data;
+    const writeX0 = Math.max(0, Math.floor(rx));
+    const writeY0 = Math.max(0, Math.floor(ry));
+    const writeX1 = Math.min(w, Math.ceil(rx + rw));
+    const writeY1 = Math.min(h, Math.ceil(ry + rh));
+
+    for (let py = writeY0; py < writeY1; py += 1) {
+      for (let px = writeX0; px < writeX1; px += 1) {
+        if (maskFn && !maskFn(px, py)) continue;
+        const si = ((py - y0) * tw + (px - x0)) * 4;
+        const di = (py * w + px) * 4;
+        dst[di] = src[si];
+        dst[di + 1] = src[si + 1];
+        dst[di + 2] = src[si + 2];
+      }
+    }
+  }
+
   function mosaicAt(x, y) {
     if (!baseImageData) return;
     const radius = Number(brushSize.value);
-    const block = Math.max(4, Number(mosaicSize.value));
-    const w = baseImageData.width;
-    const h = baseImageData.height;
-    const data = baseImageData.data;
-    const reach = radius + block * 0.5;
-    const reach2 = reach * reach;
-
-    const x0 = Math.max(0, Math.floor((x - radius) / block) * block);
-    const y0 = Math.max(0, Math.floor((y - radius) / block) * block);
-    const x1 = Math.min(w, Math.ceil((x + radius) / block) * block);
-    const y1 = Math.min(h, Math.ceil((y + radius) / block) * block);
-
-    for (let by = y0; by < y1; by += block) {
-      for (let bx = x0; bx < x1; bx += block) {
-        const cx = bx + Math.min(block, w - bx) / 2;
-        const cy = by + Math.min(block, h - by) / 2;
-        const dx = cx - x;
-        const dy = cy - y;
-        if (dx * dx + dy * dy > reach2) continue;
-
-        const bx1 = Math.min(w, bx + block);
-        const by1 = Math.min(h, by + block);
-        let r = 0;
-        let g = 0;
-        let b = 0;
-        let n = 0;
-
-        for (let py = by; py < by1; py += 1) {
-          for (let px = bx; px < bx1; px += 1) {
-            const i = (py * w + px) * 4;
-            r += data[i];
-            g += data[i + 1];
-            b += data[i + 2];
-            n += 1;
-          }
-        }
-
-        if (!n) continue;
-        r = Math.round(r / n);
-        g = Math.round(g / n);
-        b = Math.round(b / n);
-
-        for (let py = by; py < by1; py += 1) {
-          for (let px = bx; px < bx1; px += 1) {
-            const i = (py * w + px) * 4;
-            data[i] = r;
-            data[i + 1] = g;
-            data[i + 2] = b;
-          }
-        }
-      }
-    }
+    const blurPx = blurRadiusFromControl();
+    blurImageDataRegion(
+      baseImageData,
+      x - radius,
+      y - radius,
+      radius * 2,
+      radius * 2,
+      blurPx,
+      (px, py) => isHideBrushInShape(px, py, x, y, radius)
+    );
     notifyBasePixelsChanged();
   }
 
@@ -4190,7 +4359,6 @@ ${lengthBlock}
     const h = baseImageData.height;
     const dst = baseImageData.data;
     const src = source.data;
-    const r2 = radius * radius;
     const x0 = Math.max(0, Math.floor(x - radius));
     const y0 = Math.max(0, Math.floor(y - radius));
     const x1 = Math.min(w, Math.ceil(x + radius));
@@ -4198,9 +4366,7 @@ ${lengthBlock}
 
     for (let py = y0; py < y1; py += 1) {
       for (let px = x0; px < x1; px += 1) {
-        const dx = px - x;
-        const dy = py - y;
-        if (dx * dx + dy * dy > r2) continue;
+        if (!isHideBrushInShape(px, py, x, y, radius)) continue;
         const i = (py * w + px) * 4;
         dst[i] = src[i];
         dst[i + 1] = src[i + 1];
@@ -4214,46 +4380,8 @@ ${lengthBlock}
 
   function mosaicRect(rx, ry, rw, rh, blockOverride) {
     if (!baseImageData) return;
-    const block = Math.max(4, blockOverride || Number(mosaicSize.value));
-    const w = baseImageData.width;
-    const h = baseImageData.height;
-    const data = baseImageData.data;
-    const x0 = Math.max(0, Math.floor(rx / block) * block);
-    const y0 = Math.max(0, Math.floor(ry / block) * block);
-    const x1 = Math.min(w, Math.ceil((rx + rw) / block) * block);
-    const y1 = Math.min(h, Math.ceil((ry + rh) / block) * block);
-
-    for (let by = y0; by < y1; by += block) {
-      for (let bx = x0; bx < x1; bx += block) {
-        const bx1 = Math.min(w, bx + block);
-        const by1 = Math.min(h, by + block);
-        let r = 0;
-        let g = 0;
-        let b = 0;
-        let n = 0;
-        for (let py = by; py < by1; py += 1) {
-          for (let px = bx; px < bx1; px += 1) {
-            const i = (py * w + px) * 4;
-            r += data[i];
-            g += data[i + 1];
-            b += data[i + 2];
-            n += 1;
-          }
-        }
-        if (!n) continue;
-        r = Math.round(r / n);
-        g = Math.round(g / n);
-        b = Math.round(b / n);
-        for (let py = by; py < by1; py += 1) {
-          for (let px = bx; px < bx1; px += 1) {
-            const i = (py * w + px) * 4;
-            data[i] = r;
-            data[i + 1] = g;
-            data[i + 2] = b;
-          }
-        }
-      }
-    }
+    const blurPx = blurRadiusFromControl(blockOverride);
+    blurImageDataRegion(baseImageData, rx, ry, rw, rh, blurPx, null);
     notifyBasePixelsChanged();
   }
 
@@ -4561,7 +4689,7 @@ ${lengthBlock}
         return { ...box, ...refined, type: "plate-color" };
       }
     }
-    // 色で絞れない推定枠は捨てる（車体への誤モザイク防止）
+    // 色で絞れない推定枠は捨てる（車体への誤検知防止）
     if (box.type === "plate-est") return null;
     return box;
   }
@@ -4905,7 +5033,7 @@ ${lengthBlock}
         box.type === "face" ||
         box.type === "face-gemini" ||
         box.type.startsWith("plate")
-          ? Math.max(8, Math.round(Math.min(b.w, b.h) / 6))
+          ? Math.max(12, Math.round(Math.min(b.w, b.h) / 5))
           : Math.max(10, Number(mosaicSize.value));
       mosaicRect(b.x, b.y, b.w, b.h, block);
       count += 1;
@@ -5004,7 +5132,7 @@ ${lengthBlock}
       const plateN = boxes.filter((b) => b.type.startsWith("plate")).length;
       const msg =
         applied > 0
-          ? `モザイクしました（人物系 ${faces} / ナンバー ${plateN}）`
+          ? `ぼかしました（人物系 ${faces} / ナンバー ${plateN}）`
           : "対象が見つかりませんでした。手動ブラシでも隠せます";
       setAutoMosaicStatus(msg, applied === 0);
       showToast(msg);
@@ -5045,7 +5173,7 @@ ${lengthBlock}
       for (let i = 0; i < photos.length; i += 1) {
         const photo = photos[i];
         autoMosaicAllBtn.textContent = `${i + 1}/${photos.length}`;
-        setAutoMosaicStatus(`自動モザイク中… ${i + 1}/${photos.length}`);
+        setAutoMosaicStatus(`自動ぼかし中… ${i + 1}/${photos.length}`);
         try {
           const { applied } = await autoMosaicPhoto(photo, { people, plates });
           if (applied > 0) ok += 1;
@@ -5060,7 +5188,7 @@ ${lengthBlock}
       if (active) restorePhoto(active);
       else renderGallery();
 
-      const msg = `${ok}枚にモザイク（計 ${totalBoxes} 箇所）`;
+      const msg = `${ok}枚をぼかし（計 ${totalBoxes} 箇所）`;
       setAutoMosaicStatus(msg);
       showToast(msg);
     } finally {
@@ -5224,7 +5352,8 @@ ${lengthBlock}
     clearListingInfoBtn.addEventListener("click", () => {
       const hasPhotos = photos.length > 0;
       const hasAddress = Boolean((propertyAddress?.value || "").trim());
-      if (!hasPhotos && !hasAddress && propertyType.value === "mansion") {
+      const hasKeywords = Boolean(getCaptionKeywords());
+      if (!hasPhotos && !hasAddress && !hasKeywords && propertyType.value === "mansion") {
         showToast("クリアする入力情報がありません");
         return;
       }
@@ -5236,8 +5365,9 @@ ${lengthBlock}
     homeBtn.addEventListener("click", () => {
       const hasPhotos = photos.length > 0;
       const hasAddress = Boolean((propertyAddress?.value || "").trim());
+      const hasKeywords = Boolean(getCaptionKeywords());
       const hasType = propertyType.value !== "mansion";
-      if (!hasPhotos && !hasAddress && !hasType) {
+      if (!hasPhotos && !hasAddress && !hasKeywords && !hasType) {
         setPanelTab("photos");
         showToast("すでに初期画面です");
         return;
@@ -5268,10 +5398,37 @@ ${lengthBlock}
   captionCategory.addEventListener("change", () => {
     const photo = getActivePhoto();
     if (!photo) return;
-    photo.captionCategory = captionCategory.value;
-    fillCaptionTemplates(captionCategory.value);
+    if (isCustomCategoryUi()) {
+      updateCaptionCategoryCustomVisibility();
+      photo.captionCategory = normalizeCaptionCategory(captionCategoryCustom?.value || "");
+      fillCaptionTemplates(photo.captionCategory);
+      captionCategoryCustom?.focus();
+      renderGallery();
+      return;
+    }
+    if (captionCategoryCustom) captionCategoryCustom.value = "";
+    photo.captionCategory = getUiCaptionCategory();
+    updateCaptionCategoryCustomVisibility();
+    fillCaptionTemplates(photo.captionCategory);
     renderGallery();
   });
+
+  if (captionCategoryCustom) {
+    captionCategoryCustom.addEventListener("input", () => {
+      const photo = getActivePhoto();
+      if (!photo || !isCustomCategoryUi()) return;
+      photo.captionCategory = normalizeCaptionCategory(captionCategoryCustom.value);
+      fillCaptionTemplates(photo.captionCategory);
+    });
+    captionCategoryCustom.addEventListener("change", () => {
+      const photo = getActivePhoto();
+      if (!photo || !isCustomCategoryUi()) return;
+      photo.captionCategory = normalizeCaptionCategory(captionCategoryCustom.value);
+      captionCategoryCustom.value = photo.captionCategory;
+      fillCaptionTemplates(photo.captionCategory);
+      renderGallery();
+    });
+  }
 
   captionTemplate.addEventListener("change", () => {
     if (!captionTemplate.value) return;
@@ -5363,6 +5520,12 @@ ${lengthBlock}
   propertyAddress.addEventListener("change", savePropertyAddress);
   propertyAddress.addEventListener("blur", savePropertyAddress);
 
+  if (captionKeywords) {
+    captionKeywords.value = localStorage.getItem(CAPTION_KEYWORDS_STORAGE) || "";
+    captionKeywords.addEventListener("change", saveCaptionKeywords);
+    captionKeywords.addEventListener("blur", saveCaptionKeywords);
+  }
+
   restoreWatermarkPreference();
   restoreOverwritePreference();
   restoreCaptionPrefixPreference();
@@ -5397,11 +5560,7 @@ ${lengthBlock}
   propertyType.addEventListener("change", () => {
     localStorage.setItem(PROPERTY_TYPE_STORAGE, getPropertyTypeKey());
     rebuildCaptionCategories(false);
-    const photo = getActivePhoto();
-    if (photo && photo.captionCategory && !getCaptionCategories().includes(photo.captionCategory)) {
-      photo.captionCategory = "";
-      syncCaptionField();
-    }
+    syncCaptionField();
     showToast(`物件種別: ${getPropertyTypeConfig().label}`);
   });
 
@@ -5525,9 +5684,19 @@ ${lengthBlock}
   }
 
   function calcIriPresetSize(srcW, srcH, preset) {
-    return fitWithinBox(srcW, srcH, preset.minW, preset.minH, preset.maxW, preset.maxH, {
+    if (preset?.orientationSize) {
+      const landscape = Number(srcW) >= Number(srcH);
+      const target = landscape ? preset.orientationSize.landscape : preset.orientationSize.portrait;
+      return {
+        w: Math.max(1, Math.round(target.w)),
+        h: Math.max(1, Math.round(target.h)),
+        fitMode: preset.fitMode || "cover",
+      };
+    }
+    const size = fitWithinBox(srcW, srcH, preset.minW, preset.minH, preset.maxW, preset.maxH, {
       allowUpscale: Boolean(preset.allowUpscale),
     });
+    return { ...size, fitMode: preset.fitMode || "stretch" };
   }
 
   function resolveTargetSize(srcW, srcH) {
@@ -5535,14 +5704,49 @@ ${lengthBlock}
     if (preset?.kind === "iri-box") {
       return calcIriPresetSize(srcW, srcH, preset);
     }
-    return calcBatchTargetSize(
-      srcW,
-      srcH,
-      batchResizeMode.value,
-      Number(resizeWidth.value) || 1600,
-      Number(resizeHeight.value) || 1600,
-      Number(batchLongEdge.value) || 1600,
-    );
+    return {
+      ...calcBatchTargetSize(
+        srcW,
+        srcH,
+        batchResizeMode.value,
+        Number(resizeWidth.value) || 1600,
+        Number(resizeHeight.value) || 1600,
+        Number(batchLongEdge.value) || 1600,
+      ),
+      fitMode: "stretch",
+    };
+  }
+
+  function drawImageCover(ctx, source, destW, destH) {
+    const sw = source.videoWidth || source.naturalWidth || source.width;
+    const sh = source.videoHeight || source.naturalHeight || source.height;
+    if (!sw || !sh) return;
+    const scale = Math.max(destW / sw, destH / sh);
+    const dw = sw * scale;
+    const dh = sh * scale;
+    const dx = (destW - dw) / 2;
+    const dy = (destH - dh) / 2;
+    ctx.drawImage(source, dx, dy, dw, dh);
+  }
+
+  function resizeCanvasCoverSync(source, destW, destH) {
+    destW = Math.max(1, Math.round(destW));
+    destH = Math.max(1, Math.round(destH));
+    const out = document.createElement("canvas");
+    out.width = destW;
+    out.height = destH;
+    const octx = out.getContext("2d");
+    octx.imageSmoothingEnabled = true;
+    octx.imageSmoothingQuality = "high";
+    drawImageCover(octx, source, destW, destH);
+    return out;
+  }
+
+  async function resizeCanvasToTarget(source, destW, destH, fitMode = "stretch") {
+    if (fitMode === "cover") {
+      return resizeCanvasCoverSync(source, destW, destH);
+    }
+    return resizeCanvasHighQuality(source, destW, destH);
   }
 
   function getActiveExportByteLimit() {
@@ -5617,7 +5821,13 @@ ${lengthBlock}
     if (!batchResizeHint) return;
     const preset = activeExportPreset && EXPORT_PRESETS[activeExportPreset];
     if (preset?.kind === "iri-box") {
-      batchResizeHint.textContent = `${preset.label}: ${preset.minW}〜${preset.maxW}px・${Math.round(preset.maxBytes / 1024)}KB以内（保存時は上限近くの画質で調整）`;
+      if (preset.orientationSize) {
+        const land = preset.orientationSize.landscape;
+        const port = preset.orientationSize.portrait;
+        batchResizeHint.textContent = `${preset.label}: 横長${land.w}×${land.h}／縦長${port.w}×${port.h}・${Math.round(preset.maxBytes / 1024)}KB以内（写真ごとに縦横を判別）`;
+      } else {
+        batchResizeHint.textContent = `${preset.label}: ${preset.minW}〜${preset.maxW}px・${Math.round(preset.maxBytes / 1024)}KB以内（保存時は上限近くの画質で調整）`;
+      }
       if (batchLongEdgeField) batchLongEdgeField.hidden = true;
       return;
     }
@@ -5662,16 +5872,83 @@ ${lengthBlock}
     updateExportPresetUi();
   }
 
-  function applyExportPreset(presetId, { silent = false } = {}) {
+  function hideIriApplyChoice() {
+    if (iriApplyChoice) iriApplyChoice.hidden = true;
+  }
+
+  function showIriApplyChoice(presetId) {
+    const preset = EXPORT_PRESETS[presetId];
+    if (!iriApplyChoice || !preset) return;
+    if (iriApplyTitle) {
+      if (preset.orientationSize) {
+        const land = preset.orientationSize.landscape;
+        const port = preset.orientationSize.portrait;
+        iriApplyTitle.textContent = `物件写真（横${land.w}×${land.h}／縦${port.w}×${port.h}）をどこに適用しますか？`;
+      } else {
+        iriApplyTitle.textContent = `${preset.label.replace(/^IRI\s*/, "")}サイズをどこに適用しますか？`;
+      }
+    }
+    if (iriApplyAllBtn) {
+      iriApplyAllBtn.disabled = photos.length < 2;
+      iriApplyAllBtn.textContent =
+        photos.length < 2 ? "すべての写真（写真が1枚以下）" : `すべての写真（${photos.length}枚）`;
+    }
+    if (iriApplyOneBtn) {
+      iriApplyOneBtn.disabled = !getActivePhoto();
+    }
+    iriApplyChoice.hidden = false;
+  }
+
+  function applyExportPreset(presetId, { silent = false, askScope = false } = {}) {
     const preset = EXPORT_PRESETS[presetId];
     if (!preset) return;
     activeExportPreset = presetId;
     localStorage.setItem(EXPORT_PRESET_STORAGE, presetId);
-    if (preset.maxW) resizeWidth.value = String(preset.maxW);
-    if (preset.maxH) resizeHeight.value = String(preset.maxH);
+
+    if (preset.orientationSize) {
+      const active = getActivePhoto();
+      const srcW =
+        (activePhotoId && baseImageData?.width) ||
+        active?.baseImageData?.width ||
+        active?.sourceImage?.naturalWidth ||
+        preset.orientationSize.landscape.w;
+      const srcH =
+        (activePhotoId && baseImageData?.height) ||
+        active?.baseImageData?.height ||
+        active?.sourceImage?.naturalHeight ||
+        preset.orientationSize.landscape.h;
+      const sized = calcIriPresetSize(srcW, srcH, preset);
+      resizeWidth.value = String(sized.w);
+      resizeHeight.value = String(sized.h);
+    } else {
+      if (preset.maxW) resizeWidth.value = String(preset.maxW);
+      if (preset.maxH) resizeHeight.value = String(preset.maxH);
+    }
     if (batchResizeMode) batchResizeMode.value = "fit";
     updateExportPresetUi();
-    if (!silent) showToast(`${preset.label} のサイズ設定を適用しました`);
+
+    if (!askScope) {
+      hideIriApplyChoice();
+      if (!silent) showToast(`${preset.label} のサイズ設定を適用しました`);
+      return;
+    }
+
+    // 物件写真・見出写真とも、適用範囲を選ばせる
+    if (!photos.length) {
+      hideIriApplyChoice();
+      showToast(`${preset.label} を選択しました（写真を追加すると適用できます）`);
+      return;
+    }
+    if (photos.length === 1 && getActivePhoto()) {
+      hideIriApplyChoice();
+      void applyResizeToActivePhoto();
+      return;
+    }
+    showIriApplyChoice(presetId);
+    if (!silent) {
+      const note = preset.orientationSize ? "（縦横は写真ごとに自動判別）" : "";
+      showToast(`${preset.label} を選択 — 適用範囲を選んでください${note}`);
+    }
   }
 
   function restoreExportPresetPreference() {
@@ -5710,7 +5987,7 @@ ${lengthBlock}
 
         try {
           const src = photoSourceCanvas(photo);
-          const { w, h } = resolveTargetSize(src.width, src.height);
+          const { w, h, fitMode } = resolveTargetSize(src.width, src.height);
 
           if (w === src.width && h === src.height) {
             if (!photo.baseImageData) {
@@ -5719,7 +5996,7 @@ ${lengthBlock}
             continue;
           }
 
-          const resized = await resizeCanvasHighQuality(src, w, h);
+          const resized = await resizeCanvasToTarget(src, w, h, fitMode);
           const data = resized.getContext("2d").getImageData(0, 0, resized.width, resized.height);
           photo.baseImageData = data;
           markPhotoPixelEdited(photo);
@@ -5757,14 +6034,17 @@ ${lengthBlock}
     }
   }
 
-  applyResize.addEventListener("click", async () => {
-    if (!baseImageData) return;
-    const { w, h } = resolveTargetSize(baseImageData.width, baseImageData.height);
+  async function applyResizeToActivePhoto() {
+    if (!baseImageData) {
+      showToast("写真を選択してください", { error: true });
+      return false;
+    }
+    const { w, h, fitMode } = resolveTargetSize(baseImageData.width, baseImageData.height);
 
     if (w === baseImageData.width && h === baseImageData.height) {
       showToast("サイズは変更されていません");
       fileHint.textContent = "サイズは変更されていません";
-      return;
+      return false;
     }
 
     const temp = document.createElement("canvas");
@@ -5775,21 +6055,30 @@ ${lengthBlock}
     const prevLabel = applyResize.textContent;
     applyResize.disabled = true;
     applyResize.textContent = "処理中…";
+    if (iriApplyOneBtn) iriApplyOneBtn.disabled = true;
 
     try {
-      const resized = await resizeCanvasHighQuality(temp, w, h);
+      const resized = await resizeCanvasToTarget(temp, w, h, fitMode);
       commitBaseFromCanvas(resized);
       notifySuccess("resize", `サイズを変更しました（${resized.width} × ${resized.height}）`, {
         width: resized.width,
         height: resized.height,
       });
+      hideIriApplyChoice();
+      return true;
     } catch (err) {
       console.warn(err);
       notifyError("サイズ変更に失敗しました", { reason: "resize_failed" });
+      return false;
     } finally {
       applyResize.disabled = false;
       applyResize.textContent = prevLabel;
+      if (iriApplyOneBtn) iriApplyOneBtn.disabled = !getActivePhoto();
     }
+  }
+
+  applyResize.addEventListener("click", () => {
+    void applyResizeToActivePhoto();
   });
 
   batchResizeMode.addEventListener("change", () => {
@@ -5805,8 +6094,31 @@ ${lengthBlock}
     exportPresetPicker.querySelectorAll(".export-preset-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
         if (!btn.dataset.preset) return;
-        applyExportPreset(btn.dataset.preset);
+        applyExportPreset(btn.dataset.preset, { askScope: true });
       });
+    });
+  }
+
+  if (iriApplyOneBtn) {
+    iriApplyOneBtn.addEventListener("click", () => {
+      void applyResizeToActivePhoto();
+    });
+  }
+  if (iriApplyAllBtn) {
+    iriApplyAllBtn.addEventListener("click", async () => {
+      hideIriApplyChoice();
+      await batchResizeAll({ andSave: false });
+    });
+  }
+  if (iriApplySettingsOnlyBtn) {
+    iriApplySettingsOnlyBtn.addEventListener("click", () => {
+      hideIriApplyChoice();
+      const preset = EXPORT_PRESETS[activeExportPreset];
+      showToast(
+        preset
+          ? `${preset.label} の設定だけ保存しました（「この写真に適用」で反映）`
+          : "設定だけ保存しました"
+      );
     });
   }
 
@@ -5843,11 +6155,11 @@ ${lengthBlock}
       const photo = getActivePhoto();
       if (!photo) return;
       if (!restorePreMosaicForPhoto(photo)) {
-        showToast("戻せるモザイクがありません", { error: true });
+        showToast("戻せるぼかしがありません", { error: true });
         return;
       }
-      showToast("モザイクを元に戻しました");
-      fileHint.textContent = "モザイクを元に戻しました";
+      showToast("ぼかしを元に戻しました");
+      fileHint.textContent = "ぼかしを元に戻しました";
     });
   }
 
@@ -5856,6 +6168,15 @@ ${lengthBlock}
       btn.addEventListener("click", () => {
         if (!btn.dataset.mode || btn.disabled) return;
         setHideBrushMode(btn.dataset.mode);
+      });
+    });
+  }
+
+  if (hideBrushShapePicker) {
+    hideBrushShapePicker.querySelectorAll(".hide-brush-mode-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        if (!btn.dataset.shape) return;
+        setHideBrushShape(btn.dataset.shape);
       });
     });
   }
@@ -6183,7 +6504,7 @@ ${lengthBlock}
     e.preventDefault();
     if (hideBrushMode === "restore") {
       if (!canUndoMosaic(getActivePhoto())) {
-        showToast("復元できるモザイクがありません", { error: true });
+        showToast("復元できるぼかしがありません", { error: true });
         return;
       }
     } else {
@@ -6267,7 +6588,9 @@ ${lengthBlock}
         if (!inside) {
           cursor.style.display = "none";
         } else {
-          const size = Number(activeTool === "sky" ? skyBrushSize?.value || 12 : brushSize.value);
+          const rawSize = Number(activeTool === "sky" ? skyBrushSize?.value || 12 : brushSize.value);
+          // 隠すブラシは radius=サイズ なので、カーソルは直径（2倍）で実効範囲に合わせる
+          const size = activeTool === "hide" ? rawSize * 2 : rawSize;
           const canvasRect = canvas.getBoundingClientRect();
           const scale = canvasRect.width / Math.max(1, canvas.width);
           cursor.style.display = "block";
@@ -6277,6 +6600,7 @@ ${lengthBlock}
           cursor.style.top = `${clientY - wrapRect.top}px`;
           cursor.classList.toggle("is-sky-erase", activeTool === "sky" && skyBrushMode === "erase");
           cursor.classList.toggle("is-restore", activeTool === "hide" && hideBrushMode === "restore");
+          cursor.classList.toggle("is-square", activeTool === "hide" && hideBrushShape === "square");
         }
       }
     }
@@ -6835,9 +7159,9 @@ ${lengthBlock}
   function exportPhotoCanvas(photo, { watermark = true } = {}) {
     if (canUseWatermarkOnlyExport(photo)) {
       const img = photo.sourceImage;
-      const { w, h } = resolveTargetSize(img.naturalWidth, img.naturalHeight);
+      const { w, h, fitMode } = resolveTargetSize(img.naturalWidth, img.naturalHeight);
       const { bright } = getPhotoAdjustments(photo);
-      const temp = canvasFromSourceImage(photo, w, h);
+      const temp = canvasFromSourceImage(photo, w, h, fitMode);
       if (bright !== 0) {
         applyBrightnessToCanvas(temp, bright);
       }
@@ -6851,13 +7175,13 @@ ${lengthBlock}
     if (!data) return null;
 
     const { bright, contrastVal, skyOpts } = getPhotoAdjustments(photo);
-    const { w, h } = resolveTargetSize(data.width, data.height);
+    const { w, h, fitMode } = resolveTargetSize(data.width, data.height);
 
     let temp;
     if (!needsLitProcessing(bright, contrastVal, skyOpts)) {
-      temp = scaleCanvasToExport(imageDataToCanvas(data), w, h);
+      temp = scaleCanvasToExport(imageDataToCanvas(data), w, h, fitMode);
     } else {
-      const workingData = scaleImageData(data, w, h);
+      const workingData = scaleImageData(data, w, h, fitMode);
       const out = new ImageData(w, h);
       processLitPixels(workingData, out.data, bright, contrastVal, skyOpts);
       temp = document.createElement("canvas");

@@ -482,6 +482,10 @@ input {
   background: rgba(220, 90, 60, 0.12);
 }
 
+.brush-cursor.is-square {
+  border-radius: 2px;
+}
+
 .gallery {
   margin-top: 1rem;
 }
@@ -751,6 +755,10 @@ input {
   line-height: 1.55;
 }
 
+#captionKeywords {
+  min-height: 3.6rem;
+}
+
 .caption-input-wrap {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -1014,6 +1022,8 @@ input {
 
 .field input[type="number"],
 .field input[type="color"],
+.field input[type="text"],
+.field input[type="password"],
 .field select {
   width: 100%;
   border: 1px solid var(--line);
@@ -1021,6 +1031,10 @@ input {
   padding: 0.65rem 0.75rem;
   background: #fff;
   color: var(--ink);
+}
+
+#captionCategoryCustomField[hidden] {
+  display: none;
 }
 
 .field input[type="color"] {
@@ -1397,6 +1411,31 @@ input {
     padding: 0.55rem 0.85rem;
     font-size: 0.9rem;
   }
+}
+
+.iri-apply-choice {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  border-radius: 12px;
+  border: 1px solid rgba(15, 122, 90, 0.28);
+  background: rgba(15, 122, 90, 0.08);
+}
+
+.iri-apply-choice[hidden] {
+  display: none !important;
+}
+
+.iri-apply-title {
+  margin: 0 0 0.65rem;
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.iri-apply-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
 }
 
 .toast {

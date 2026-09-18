@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<title>Lumen 使い方ガイド（ビジュアル版）</title>
+<style>
+  @page { size: A4; margin: 14mm 12mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+    color: #1a1f1c;
+    font-size: 11pt;
+    line-height: 1.6;
+    margin: 0;
+  }
+  .cover {
+    page-break-after: always;
+    padding: 40px 20px 20px;
+    text-align: center;
+  }
+  .cover h1 {
+    font-size: 28pt;
+    margin: 0 0 12px;
+    color: #0f7a5a;
+  }
+  .cover p { color: #5a6a62; font-size: 12pt; }
+  .badge {
+    display: inline-block;
+    background: #e8f4ef;
+    color: #0f7a5a;
+    padding: 6px 14px;
+    border-radius: 999px;
+    font-weight: 700;
+    margin-bottom: 18px;
+  }
+  .cover img {
+    width: 100%;
+    max-width: 720px;
+    border-radius: 12px;
+    margin-top: 24px;
+    border: 1px solid #d5e5de;
+  }
+  .section {
+    page-break-after: always;
+    padding: 8px 4px 0;
+  }
+  .section:last-child { page-break-after: auto; }
+  h2 {
+    font-size: 16pt;
+    color: #0f7a5a;
+    margin: 0 0 8px;
+    border-bottom: 2px solid #d5e5de;
+    padding-bottom: 6px;
+  }
+  .desc {
+    margin: 0 0 12px;
+    font-size: 11.5pt;
+  }
+  .shot {
+    width: 100%;
+    border: 1px solid #c9d8d1;
+    border-radius: 10px;
+    display: block;
+  }
+  .note {
+    margin-top: 10px;
+    padding: 10px 12px;
+    background: #f7faf8;
+    border-left: 4px solid #0f7a5a;
+    font-size: 10.5pt;
+  }
+  .footer {
+    margin-top: 16px;
+    color: #7a8a82;
+    font-size: 9pt;
+  }
+</style>
+</head>
+<body>
+  <section class="cover">
+    <div class="badge">Lumen v35</div>
+    <h1>使い方ガイド（ビジュアル版）</h1>
+    <p>不動産写真の編集・キャプション・保存までを画面つきで解説</p>
+    <img src="docs/guide-assets/00-flow.jpg" alt="全体の流れ" />
+    <p class="footer">起動画面は実機キャプチャ。操作画面は実際のUI構成に基づく解説図です（2026-09-10）。</p>
+  </section>
+
+  <section class="section">
+    <h2>起動直後の画面（実機）</h2>
+    <p class="desc">Chromeで開いた直後の画面です。ここに写真をドロップするか、左パネルから追加します。</p>
+    <img class="shot" src="docs/guide-assets/01-home.jpg" alt="起動直後の画面（実機）" />
+    <div class="note">つながらないときは <code>開く.command</code> または Lumen起動.app を再実行してください。</div>
+  </section>
+
+  <section class="section">
+    <h2>① 写真タブ</h2>
+    <p class="desc">写真を追加し、物件種別・住所・各写真の名前を設定します。名前はそのまま保存ファイル名になります。</p>
+    <img class="shot" src="docs/guide-assets/02-photos.jpg" alt="① 写真タブ" />
+    
+  </section>
+
+  <section class="section">
+    <h2>② 編集：サイズ（IRI）</h2>
+    <p class="desc">基本は「物件写真」（400〜800px・250KB）。見出写真は一覧用の小さいサイズです。</p>
+    <img class="shot" src="docs/guide-assets/03-edit-size.jpg" alt="② 編集：サイズ（IRI）" />
+    <div class="note">迷ったら常に「物件写真」でOK。見出写真は一覧の小さい画像だけに使います。</div>
+  </section>
+
+  <section class="section">
+    <h2>② 編集：空の置き換え</h2>
+    <p class="desc">「自然な青空に置き換え」→ 残った部分は漏れ補修ブラシの「追加」でなぞります。</p>
+    <img class="shot" src="docs/guide-assets/04-edit-sky.jpg" alt="② 編集：空の置き換え" />
+    <div class="note">電線の隙間が残ったら、ブラシの「追加」でなぞってください。</div>
+  </section>
+
+  <section class="section">
+    <h2>② 編集：ぼかし</h2>
+    <p class="desc">人物・ナンバーを自動検知するか、ブラシで隠します。ナンバーはプレート本体のみ対象です。</p>
+    <img class="shot" src="docs/guide-assets/05-edit-mosaic.jpg" alt="② 編集：ぼかし" />
+    <div class="note">Gemini APIキーがあるとナンバー検知の精度が上がります。</div>
+  </section>
+
+  <section class="section">
+    <h2>複数の編集を組み合わせる</h2>
+    <p class="desc">明るさのあとにぼかしなど、順番を変えても大丈夫です。</p>
+    <img class="shot" src="docs/guide-assets/08-multi-edit.jpg" alt="複数の編集を組み合わせる" />
+    
+  </section>
+
+  <section class="section">
+    <h2>③ キャプション</h2>
+    <p class="desc">カテゴリを先に選び、AI生成または定型文。最終は36文字以内。《杏栄》は入れる／入れないを選択。</p>
+    <img class="shot" src="docs/guide-assets/06-caption.jpg" alt="③ キャプション" />
+    <div class="note">《杏栄》を入れる場合、本文は最大32文字（合計36文字以内）。</div>
+  </section>
+
+  <section class="section">
+    <h2>④ 保存</h2>
+    <p class="desc">出力タブで透かし・フォルダを確認し、上部の「保存」または「すべて保存」を押します。</p>
+    <img class="shot" src="docs/guide-assets/07-output.jpg" alt="④ 保存" />
+    
+  </section>
+
+  <section class="section">
+    <h2>最短チェックリスト</h2>
+    <ol>
+      <li>起動する（開く.command / Lumen起動.app）</li>
+      <li>写真を入れる → 名前を付ける</li>
+      <li>編集：物件写真サイズ → 明るさ →（必要なら）空・ぼかし</li>
+      <li>キャプション：カテゴリ → 生成/定型 → コピー</li>
+      <li>出力：透かし確認 → 保存</li>
+    </ol>
+    <div class="note">詳しい文章版は「使い方.md」または Obsidian の「Lumen使い方ガイド」を参照。</div>
+    <p class="footer">GitHub: https://github.com/erimizoguchi-star/lumen-photo</p>
+  </section>
+</body>
+</html>
