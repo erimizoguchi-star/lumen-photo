@@ -12,7 +12,7 @@
       href="https://fonts.googleapis.com/css2?family=Syne:wght@500;700;800&family=IBM+Plex+Sans+JP:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=12" />
+    <link rel="stylesheet" href="styles.css?v=13" />
   </head>
   <body>
     <div class="app">
@@ -62,6 +62,7 @@
                 <span class="property-link__label">物件</span>
                 <strong class="property-link__name" id="propertyLinkName"></strong>
                 <p class="hint" id="propertyLinkHint">物件情報管理システムから開きました。仕上げた写真は、広告シートの「物件写真」の枠に入れてください。</p>
+                <button type="button" class="btn ghost property-link__load" id="loadPropertyPhotosBtn" hidden title="広告シートの「物件写真」の枠に入っている写真を、ここへ読み込みます">物件の写真を読み込む</button>
               </div>
               <label class="upload-btn" for="fileInput">
                 <span>写真を追加</span>
@@ -504,6 +505,6 @@
 
     <div class="toast" id="toast" hidden role="status" aria-live="polite"></div>
 
-    <script src="app.js?v=48"></script>
+    <script src="app.js?v=49"></script>
   </body>
 </html>

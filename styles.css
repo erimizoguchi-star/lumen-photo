@@ -1503,3 +1503,12 @@ input {
   margin: 0;
 }
 
+.property-link__load {
+  margin-top: 8px;
+  width: 100%;
+}
+
+.property-link__load[hidden] {
+  display: none;
+}
+

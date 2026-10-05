@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const APP_VERSION = "48";
+  const APP_VERSION = "49";
 
   const fileInput = document.getElementById("fileInput");
   const fileHint = document.getElementById("fileHint");
@@ -27,6 +27,9 @@
   const sendToPropertyBtn = document.getElementById("sendToPropertyBtn");
   // 物件情報管理システムから渡された、仕上がった写真の送り先（期限つきの受付票を含む）。無ければ null
   let propertyUploadUrl = null;
+  // 物件情報管理システムから読み込んだ写真の「読み込み時のファイル名 → 元ファイルの ID」。
+  // 編集して送り返すとき、元の写真と置き換えるために使う
+  const propertySourceIdByImportName = new Map();
   // 画像を送ってよい相手（物件情報管理システム）。それ以外の送り先は無視する
   const PROPERTY_UPLOAD_HOSTS = ["property-signage.vercel.app"];
   const pickFolderBtn = document.getElementById("pickFolderBtn");
@@ -1676,8 +1679,10 @@
     if (!raw) return null;
     try {
       const url = new URL(raw);
-      if (url.protocol !== "https:") return null;
-      if (!PROPERTY_UPLOAD_HOSTS.includes(url.hostname)) return null;
+      // 開発中（このアプリ自体を localhost で開いているとき）だけ、手元の物件情報管理システムも相手にできる
+      const local = url.hostname === "localhost" && window.location.hostname === "localhost";
+      if (url.protocol !== "https:" && !local) return null;
+      if (!PROPERTY_UPLOAD_HOSTS.includes(url.hostname) && !local) return null;
       if (!url.pathname.startsWith("/api/integrations/assets")) return null;
       return url.toString();
     } catch (_err) {
@@ -1695,6 +1700,73 @@
     } catch (_err) {
       /* アドレスバーを書き換えられなくても動作に影響しない */
     }
+  }
+
+  /** 物件情報管理システムにある、この物件の写真（広告シートの「物件写真」の枠）の一覧。取得できなければ空 */
+  async function fetchPropertyPhotoSources() {
+    if (!propertyUploadUrl) return [];
+    try {
+      const response = await fetch(propertyUploadUrl);
+      if (!response.ok) return [];
+      const data = await response.json();
+      return Array.isArray(data.sources) ? data.sources.filter((s) => s && s.kind === "image") : [];
+    } catch (_err) {
+      return [];
+    }
+  }
+
+  /** 物件情報管理システムの写真を読み込み、「写真を追加」と同じように取り込む */
+  async function loadPropertyPhotos(sources) {
+    if (!propertyUploadUrl || !sources.length || importBusy) return;
+    const loadBtn = document.getElementById("loadPropertyPhotosBtn");
+    if (loadBtn) loadBtn.disabled = true;
+    const loaded = new Array(sources.length).fill(null);
+    let failed = 0;
+    let done = 0;
+    setImportLoading(true, { title: "物件の写真を読み込んでいます", detail: `0/${sources.length}` });
+
+    const loadOne = async (i) => {
+      try {
+        const url = new URL(propertyUploadUrl);
+        url.searchParams.set("file", sources[i].id);
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`読み込みに失敗しました（${response.status}）`);
+        const blob = await response.blob();
+        const base = String(sources[i].name || "photo").replace(/\.[^.]+$/, "");
+        // 同じ名前の写真があっても取り違えないよう、番号を付ける
+        const name = `${String(i + 1).padStart(2, "0")}_${base}.jpg`;
+        loaded[i] = new File([blob], name, { type: "image/jpeg" });
+        propertySourceIdByImportName.set(name, sources[i].id);
+      } catch (err) {
+        console.warn(err);
+        failed += 1;
+      }
+      done += 1;
+      setImportLoading(true, {
+        title: "物件の写真を読み込んでいます",
+        detail: `${done}/${sources.length}`,
+        progress: Math.round((done / sources.length) * 100),
+      });
+    };
+
+    try {
+      // 3枚ずつ並行して読み込む（順番は元のまま保つ）
+      let next = 0;
+      const worker = async () => {
+        while (next < sources.length) {
+          const i = next;
+          next += 1;
+          await loadOne(i);
+        }
+      };
+      await Promise.all([worker(), worker(), worker()]);
+    } finally {
+      setImportLoading(false);
+      if (loadBtn) loadBtn.disabled = false;
+    }
+    const files = loaded.filter(Boolean);
+    if (files.length) await addFiles(files);
+    if (failed > 0) showToast(`${failed}枚は読み込めませんでした`, { error: true });
   }
 
   /**
@@ -1734,6 +1806,9 @@
           form.append("file", new File([blob], `photo-${i + 1}.jpg`, { type: "image/jpeg" }));
           const caption = (photo.caption || "").trim() ? formatCaptionOutput(photo.caption) : "";
           if (caption) form.append("note", caption);
+          // 物件情報管理システムから読み込んだ写真なら、元の写真と置き換える
+          const sourceId = propertySourceIdByImportName.get(photo.importName);
+          if (sourceId) form.append("replaces", sourceId);
 
           const response = await fetch(propertyUploadUrl, { method: "POST", body: form });
           const data = await response.json().catch(() => null);
@@ -1747,6 +1822,8 @@
             }
             throw new Error(message);
           }
+          // もう一度送ったときも同じ写真を置き換えられるよう、保存先のファイルを覚え直す
+          if (data.fileId && photo.importName) propertySourceIdByImportName.set(photo.importName, data.fileId);
           sent += 1;
         } catch (err) {
           console.warn(err);
@@ -1806,6 +1883,17 @@
           sendAllToPropertySystem();
         });
       }
+      // 広告シートの「物件写真」の枠に写真があれば、読み込むボタンを出す
+      fetchPropertyPhotoSources().then((sources) => {
+        const loadBtn = document.getElementById("loadPropertyPhotosBtn");
+        if (!loadBtn || !sources.length) return;
+        loadBtn.textContent = `物件の写真を読み込む（${sources.length}枚）`;
+        loadBtn.title = "広告シートの「物件写真」の枠に入っている写真を読み込みます。編集して「物件へ送る」を押すと、元の写真と置き換わります";
+        loadBtn.hidden = false;
+        loadBtn.addEventListener("click", () => {
+          loadPropertyPhotos(sources);
+        });
+      });
     }
     updateBatchButtons();
   }
