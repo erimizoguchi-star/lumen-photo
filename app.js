@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const APP_VERSION = "46";
+  const APP_VERSION = "47";
 
   const fileInput = document.getElementById("fileInput");
   const fileHint = document.getElementById("fileHint");
@@ -1639,6 +1639,49 @@
 
   function getPropertyAddress() {
     return (propertyAddress?.value || "").trim();
+  }
+
+  /**
+   * 物件情報管理システムから渡される物件情報（URL の ?property= / name= / address= / type=）。
+   * 何も渡されていなければ null。
+   */
+  function readPropertyLinkFromUrl() {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const clean = (key, max) => (params.get(key) || "").trim().slice(0, max);
+      const link = {
+        propertyId: clean("property", 80),
+        name: clean("name", 120),
+        address: clean("address", 200),
+        type: clean("type", 10),
+      };
+      return link.propertyId || link.name || link.address ? link : null;
+    } catch (_err) {
+      return null;
+    }
+  }
+
+  /** 物件情報を住所欄・物件種別・見出しへ反映する。住所は丁目まで（番地は説明文に不要なため入れない） */
+  function applyPropertyLinkFromUrl() {
+    const link = readPropertyLinkFromUrl();
+    if (!link) return;
+    if (link.address && propertyAddress) {
+      const town = link.address.replace(/^北海道/, "");
+      const upToChome = town.match(/^.*?丁目/);
+      propertyAddress.value = upToChome ? upToChome[0] : town;
+      savePropertyAddress();
+    }
+    const typeMap = { 住宅: "house", 土地: "land", MS: "mansion" };
+    if (propertyType && typeMap[link.type]) {
+      propertyType.value = typeMap[link.type];
+      propertyType.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    const banner = document.getElementById("propertyLinkBanner");
+    const nameEl = document.getElementById("propertyLinkName");
+    if (banner && nameEl) {
+      nameEl.textContent = link.name || link.address;
+      banner.hidden = false;
+    }
   }
 
   function savePropertyAddress() {
@@ -5563,6 +5606,10 @@ ${keywordsLine}
     syncCaptionField();
     showToast(`物件種別: ${getPropertyTypeConfig().label}`);
   });
+
+  // 物件情報管理システム（広告シートの「写真を編集する」）から開かれたときは、URL の物件情報を反映する。
+  // 保存済みの住所・物件種別の復元と、物件種別の変更処理の登録が済んでから行う
+  applyPropertyLinkFromUrl();
 
   generateCaptionBtn.addEventListener("click", () => {
     generateActiveCaption();

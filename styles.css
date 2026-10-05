@@ -1473,3 +1473,33 @@ input {
   background: rgba(160, 58, 42, 0.95);
   border-color: rgba(160, 58, 42, 0.3);
 }
+
+/* 物件情報管理システムから開かれたときの物件表示 */
+.property-link {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-left: 4px solid #0284c7;
+  border-radius: 8px;
+  background: rgba(2, 132, 199, 0.08);
+}
+
+.property-link[hidden] {
+  display: none;
+}
+
+.property-link__label {
+  display: block;
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.property-link__name {
+  display: block;
+  font-size: 14px;
+  margin: 2px 0 4px;
+}
+
+.property-link .hint {
+  margin: 0;
+}
+
