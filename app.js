@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const APP_VERSION = "49";
+  const APP_VERSION = "50";
 
   const fileInput = document.getElementById("fileInput");
   const fileHint = document.getElementById("fileHint");
@@ -334,6 +334,18 @@
   };
 
   let activeExportPreset = DEFAULT_EXPORT_PRESET;
+
+  /**
+   * 「物件へ送る」で送る写真の大きさ。チラシ（印刷）や他サイトでも使えるよう、IRI 用の縮小は掛けずに
+   * 長辺 2400px・1.5MB 以内で送る（物件情報管理システムの受け口がそのまま保存できる上限）。
+   * IRI 用のサイズはダウンロード時に、選んでいる IRI 登録サイズで作る。
+   */
+  const SEND_TARGET = { longEdge: 2400, maxBytes: 1.5 * 1024 * 1024 };
+
+  function resolveSendTargetSize(srcW, srcH) {
+    const size = fitWithinBox(srcW, srcH, 1, 1, SEND_TARGET.longEdge, SEND_TARGET.longEdge, { allowUpscale: false });
+    return { ...size, fitMode: "stretch" };
+  }
 
   /** @type {Record<string, { name: string, zenith: {r:number,g:number,b:number}, horizon: {r:number,g:number,b:number}, haze: {r:number,g:number,b:number,strength:number}|null, glow: {r:number,g:number,b:number,strength:number}|null, clouds: number, warmth: number }>} */
   const SKY_PRESETS = {
@@ -1766,6 +1778,12 @@
     }
     const files = loaded.filter(Boolean);
     if (files.length) await addFiles(files);
+    const loadedNames = new Set(files.map((f) => f.name));
+    photos.forEach((p) => {
+      if (loadedNames.has(p.importName)) p.fromProperty = true;
+    });
+    renderGallery();
+    updatePropertyLinkStatus();
     if (failed > 0) showToast(`${failed}枚は読み込めませんでした`, { error: true });
   }
 
@@ -1795,10 +1813,10 @@
           progress: Math.round(((i + 1) / photos.length) * 100),
         });
         try {
-          const exportCanvas = await buildExportCanvas(photo);
+          const exportCanvas = await buildExportCanvas(photo, { targetSize: resolveSendTargetSize });
           if (!exportCanvas) throw new Error("画像を書き出せませんでした");
           await yieldToUi();
-          const result = await exportUnderLimit(exportCanvas, getActiveExportByteLimit());
+          const result = await exportUnderLimit(exportCanvas, SEND_TARGET.maxBytes);
           const blob = result.blob || dataUrlToBlob(result.url);
           if (result.revokeUrl && result.url) URL.revokeObjectURL(result.url);
 
@@ -1824,6 +1842,7 @@
           }
           // もう一度送ったときも同じ写真を置き換えられるよう、保存先のファイルを覚え直す
           if (data.fileId && photo.importName) propertySourceIdByImportName.set(photo.importName, data.fileId);
+          photo.sentToProperty = sourceId ? "replaced" : "sent";
           sent += 1;
         } catch (err) {
           console.warn(err);
@@ -1833,6 +1852,8 @@
         if (i % 2 === 1) await yieldToUi();
       }
 
+      renderGallery();
+      updatePropertyLinkStatus();
       if (failed > 0) {
         const message = `${sent}枚を送りました（${failed}枚は失敗: ${firstError}）`;
         fileHint.textContent = message;
@@ -1876,7 +1897,7 @@
       const hint = document.getElementById("propertyLinkHint");
       if (hint) {
         hint.textContent =
-          "物件情報管理システムから開きました。仕上げたら右上の「物件へ送る」を押すと、写真と説明文が広告シートの「物件写真」の枠に入ります。";
+          "物件情報管理システムから開きました。仕上げたら「物件へ送る」を押すと、広告シートの「物件写真」の枠に入ります。送る写真は長辺 2400px（チラシ・他サイト用）、IRI 用のサイズはダウンロードで作れます。";
       }
       if (sendToPropertyBtn) {
         sendToPropertyBtn.addEventListener("click", () => {
@@ -1896,6 +1917,20 @@
       });
     }
     updateBatchButtons();
+  }
+
+  /** 物件の帯に、読み込んだ枚数と送った枚数を出す */
+  function updatePropertyLinkStatus() {
+    const el = document.getElementById("propertyLinkStatus");
+    if (!el || !propertyUploadUrl) return;
+    const loaded = photos.filter((p) => p.fromProperty).length;
+    const sent = photos.filter((p) => p.sentToProperty).length;
+    const parts = [];
+    if (loaded) parts.push(`物件から読み込んだ写真 ${loaded}枚`);
+    if (sent) parts.push(`送信済み ${sent}枚`);
+    if (photos.length - sent > 0 && (loaded || sent)) parts.push(`未送信 ${photos.length - sent}枚`);
+    el.textContent = parts.join(" ／ ");
+    el.hidden = parts.length === 0;
   }
 
   function savePropertyAddress() {
@@ -2521,6 +2556,17 @@ ${keywordsLine}
       const h = photo.baseImageData?.height || photo.sourceImage.naturalHeight;
       size.textContent = `${index + 1}. ${w} × ${h}`;
       meta.append(name, size);
+      // 物件情報管理システムとのやり取りの状態（読み込んだ写真か、送信済みか）
+      if (photo.fromProperty || photo.sentToProperty) {
+        const badge = document.createElement("span");
+        badge.className = `gallery-badge${photo.sentToProperty ? " is-sent" : ""}`;
+        badge.textContent = photo.sentToProperty === "replaced"
+          ? "送信済み（元の写真と置き換え）"
+          : photo.sentToProperty === "sent"
+            ? "送信済み"
+            : "物件から読み込み";
+        meta.append(badge);
+      }
       if (photo.caption) {
         const cap = document.createElement("span");
         cap.className = "gallery-caption-preview";
@@ -2846,6 +2892,10 @@ ${keywordsLine}
             id: `photo-${photoSeq}-${Date.now()}`,
             name: file.name,
             importName: file.name,
+            /** 物件情報管理システムへ送った状態（"sent" / "replaced"）。未送信は null */
+            sentToProperty: null,
+            /** 物件情報管理システムの広告シートから読み込んだ写真なら true */
+            fromProperty: false,
             sourceImage: img,
             thumbUrl: makeThumbUrl(img),
             baseImageData: null,
@@ -3947,9 +3997,11 @@ ${keywordsLine}
     return !needsHeavyLitProcessing(contrastVal, skyOpts, photo);
   }
 
-  async function buildWatermarkOnlyExportCanvas(photo, { watermark = true } = {}) {
+  async function buildWatermarkOnlyExportCanvas(photo, { watermark = true, targetSize = null } = {}) {
     const img = photo.sourceImage;
-    const { w, h, fitMode } = resolveTargetSize(img.naturalWidth, img.naturalHeight);
+    const { w, h, fitMode } = targetSize
+      ? targetSize(img.naturalWidth, img.naturalHeight)
+      : resolveTargetSize(img.naturalWidth, img.naturalHeight);
     const { bright } = getPhotoAdjustments(photo);
     await yieldToUi();
     const temp = canvasFromSourceImage(photo, w, h, fitMode);
@@ -3987,16 +4039,20 @@ ${keywordsLine}
     return scaleCanvasToExport(cur, targetW, targetH, fitMode);
   }
 
-  async function buildExportCanvas(photo, { watermark = true } = {}) {
+  /**
+   * 書き出し用のキャンバスを作る。
+   * targetSize を渡すと、IRI 登録サイズの代わりにその大きさ（(srcW, srcH) => {w, h, fitMode}）で作る。
+   */
+  async function buildExportCanvas(photo, { watermark = true, targetSize = null } = {}) {
     if (canUseWatermarkOnlyExport(photo)) {
-      return buildWatermarkOnlyExportCanvas(photo, { watermark });
+      return buildWatermarkOnlyExportCanvas(photo, { watermark, targetSize });
     }
 
     const data = photo.id === activePhotoId && baseImageData ? baseImageData : photo.baseImageData;
     if (!data) return null;
 
     const { bright, contrastVal, skyOpts } = getPhotoAdjustments(photo);
-    const { w, h, fitMode } = resolveTargetSize(data.width, data.height);
+    const { w, h, fitMode } = targetSize ? targetSize(data.width, data.height) : resolveTargetSize(data.width, data.height);
 
     await yieldToUi();
 

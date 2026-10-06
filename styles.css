@@ -1503,6 +1503,34 @@ input {
   margin: 0;
 }
 
+.property-link__status {
+  margin: 6px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #0369a1;
+}
+
+.property-link__status[hidden] {
+  display: none;
+}
+
+/* 写真一覧の「物件から読み込み」「送信済み」の印 */
+.gallery-badge {
+  display: inline-block;
+  margin-top: 2px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: #0369a1;
+  background: rgba(2, 132, 199, 0.12);
+}
+
+.gallery-badge.is-sent {
+  color: #047857;
+  background: rgba(4, 120, 87, 0.12);
+}
+
 .property-link__load {
   margin-top: 8px;
   width: 100%;

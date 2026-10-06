@@ -43,7 +43,7 @@
           <button type="button" class="btn ghost" id="downloadBtn" disabled title="ブラウザのダウンロードへ保存">ダウンロード</button>
           <button type="button" class="btn primary" id="saveAllBtn" disabled hidden title="すべての写真をフォルダへ保存">すべて保存</button>
           <button type="button" class="btn primary" id="saveBtn" disabled title="指定フォルダへ直接保存（対応ブラウザ）">保存</button>
-          <button type="button" class="btn primary" id="sendToPropertyBtn" disabled hidden title="仕上げた写真と説明文を、物件情報管理システムの広告シート（物件写真の枠）へ送ります">物件へ送る</button>
+          <button type="button" class="btn primary" id="sendToPropertyBtn" disabled hidden title="仕上げた写真と説明文を、物件情報管理システムの広告シート（物件写真の枠）へ送ります。長辺 2400px の大きさで送ります">物件へ送る</button>
         </div>
       </header>
 
@@ -62,6 +62,7 @@
                 <span class="property-link__label">物件</span>
                 <strong class="property-link__name" id="propertyLinkName"></strong>
                 <p class="hint" id="propertyLinkHint">物件情報管理システムから開きました。仕上げた写真は、広告シートの「物件写真」の枠に入れてください。</p>
+                <p class="property-link__status" id="propertyLinkStatus" hidden></p>
                 <button type="button" class="btn ghost property-link__load" id="loadPropertyPhotosBtn" hidden title="広告シートの「物件写真」の枠に入っている写真を、ここへ読み込みます">物件の写真を読み込む</button>
               </div>
               <label class="upload-btn" for="fileInput">
@@ -505,6 +506,6 @@
 
     <div class="toast" id="toast" hidden role="status" aria-live="polite"></div>
 
-    <script src="app.js?v=49"></script>
+    <script src="app.js?v=50"></script>
   </body>
 </html>
