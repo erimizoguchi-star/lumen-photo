@@ -1,10 +1,19 @@
 (() => {
   "use strict";
 
-  const APP_VERSION = "46";
+  const APP_VERSION = "52";
 
   const fileInput = document.getElementById("fileInput");
   const fileHint = document.getElementById("fileHint");
+  const openStreetViewBtn = document.getElementById("openStreetViewBtn");
+  const streetViewStage = document.getElementById("streetViewStage");
+  const streetViewAddress = document.getElementById("streetViewAddress");
+  const streetViewSearchBtn = document.getElementById("streetViewSearchBtn");
+  const streetViewCaptureBtn = document.getElementById("streetViewCaptureBtn");
+  const streetViewCloseBtn = document.getElementById("streetViewCloseBtn");
+  const streetViewPano = document.getElementById("streetViewPano");
+  const streetViewStatus = document.getElementById("streetViewStatus");
+  const streetViewApiKey = document.getElementById("streetViewApiKey");
   const dropzone = document.getElementById("dropzone");
   const loadingOverlay = document.getElementById("loadingOverlay");
   const loadingTitle = document.getElementById("loadingTitle");
@@ -273,6 +282,7 @@
    *   skyKeepClouds: boolean,
    *   watermarkPosition: string,
    *   captionCategory: string,
+   *   captionKeywords: string,
    *   caption: string,
    * }>} */
   let photos = [];
@@ -1212,6 +1222,7 @@
       if (captionEmpty) captionEmpty.hidden = false;
       setUiCaptionCategory("");
       captionInput.value = "";
+      if (captionKeywords) captionKeywords.value = "";
       fillCaptionTemplates("");
       updateCaptionCount();
       return;
@@ -1221,6 +1232,9 @@
     setUiCaptionCategory(photo.captionCategory || "");
     captionInput.value = clampCaptionBody(stripCaptionPrefix(photo.caption || ""));
     fillCaptionTemplates(photo.captionCategory || "");
+    if (captionKeywords && document.activeElement !== captionKeywords) {
+      captionKeywords.value = normalizeCaptionKeywords(photo.captionKeywords || "");
+    }
     updateCaptionCount();
   }
 
@@ -1228,6 +1242,7 @@
     const photo = getActivePhoto();
     if (!photo) return;
     photo.captionCategory = getUiCaptionCategory();
+    photo.captionKeywords = getCaptionKeywords();
     photo.caption = clampCaptionBody(stripCaptionPrefix(captionInput.value));
     if (captionInput.value !== photo.caption) {
       captionInput.value = photo.caption;
@@ -1293,7 +1308,6 @@
 
   const GEMINI_KEY_STORAGE = "lumen-gemini-api-key";
   const PROPERTY_ADDRESS_STORAGE = "lumen-property-address";
-  const CAPTION_KEYWORDS_STORAGE = "lumen-caption-keywords";
   const WATERMARK_STORAGE = "lumen-watermark-enabled";
   const OVERWRITE_STORAGE = "lumen-overwrite-existing";
   const WATERMARK_POS_STORAGE = "lumen-watermark-position";
@@ -1659,19 +1673,21 @@
   }
 
   function saveCaptionKeywords() {
-    const value = getCaptionKeywords();
-    if (captionKeywords && captionKeywords.value !== value) {
-      captionKeywords.value = value;
-    }
-    if (value) localStorage.setItem(CAPTION_KEYWORDS_STORAGE, value);
-    else localStorage.removeItem(CAPTION_KEYWORDS_STORAGE);
+    const photo = getActivePhoto();
+    if (!photo) return;
+    photo.captionKeywords = getCaptionKeywords();
   }
 
-  function buildCaptionPrompt(hintCategory, photoName = "") {
+  function keywordsForPhoto(photo) {
+    if (photo && photo.id === activePhotoId) return getCaptionKeywords();
+    return normalizeCaptionKeywords(photo?.captionKeywords || "");
+  }
+
+  function buildCaptionPrompt(hintCategory, photoName = "", keywords = null) {
     const typeConfig = getPropertyTypeConfig();
     const categories = getCaptionCategories().join(" / ");
     const address = getPropertyAddress();
-    const keywords = getCaptionKeywords();
+    const keywordText = keywords == null ? getCaptionKeywords() : normalizeCaptionKeywords(keywords);
     const bodyMax = getCaptionBodyMax();
     const minAim = Math.max(8, Math.floor(bodyMax * 0.85));
     const addressBlock = address
@@ -1682,8 +1698,8 @@
 - 室内カテゴリのときは住所より写真の印象を優先する`
       : `物件住所: （未入力）`;
 
-    const keywordsBlock = keywords
-      ? `アピールポイント・キーワード: ${keywords}
+    const keywordsBlock = keywordText
+      ? `アピールポイント・キーワード: ${keywordText}
 ※キーワードがある場合（最重要）:
 - 写真と矛盾しないものを優先して、caption に自然に織り込む
 - 写っていない設備・特徴は、キーワードにあっても書かない
@@ -1741,29 +1757,71 @@ ${keywordsBlock}
 ${lengthBlock}
 
 作業手順（必ず守る）:
-1. 写真に実際に写っているものと、そこから受ける印象を observation に書く
-2. キーワードがある場合は、写真と矛盾しないものを選び、observation にも触れる
-3. observation を根拠に caption を1つ作る（印象語は写真の見た目と矛盾しないこと）
-4. 写っていない設備・特徴は caption に入れない（例: 食洗機が見えなければ「食洗機付き」と書かない）
-5. caption は可能な限り ${bodyMax} 文字ちょうどに近づける
+1. 写真の事実と印象は頭の中で確認し、出力には書かない
+2. キーワードがある場合は、写真と矛盾しないものだけを caption に自然に入れる
+3. 写っていない設備・特徴は caption に入れない
+4. caption を先に完成させ、可能な限り ${bodyMax} 文字に近づける
 
 出力ルール:
-1. 出力は日本語のJSONオブジェクトのみ。英語の説明文・前置き・コードフェンスは禁止
-2. 次の形だけを返す（前後に文字を付けない）
-{"category":"カテゴリ名","observation":"写真で確認できた事実と印象","caption":"本文のみ（《杏栄》なし）","charCount":本文の文字数}
-3. category は指定があればそのカテゴリ。なければ次のいずれか: ${categories}
-4. caption は日本語のみ。《杏栄》は付けない。本文のみ ${bodyMax} 文字以内、目標は ${bodyMax} 文字
+1. 出力は日本語のJSONオブジェクトのみ。英語の説明・前置き・コードフェンスは禁止
+2. 次の形だけを返す。caption を最初のキーにする（途中で切れても本文が残るように）
+{"caption":"本文のみ（《杏栄》なし）","charCount":本文の文字数}
+3. observation や category は出力しない
+4. caption は日本語のみ。《杏栄》は付けない。本文のみ ${bodyMax} 文字以内
 5. 【カテゴリ】や■は付けない
-6. 「です・ます」は使わず、読みやすい短い文やフレーズでまとめる（句読点は必要なら可）
+6. 「です・ます」は使わず、読みやすい短い文やフレーズでまとめる
 7. 指定カテゴリと物件種別に合わない表現は禁止
 8. 誇大表現・虚偽（正確な駅距離・面積・価格など）は禁止
-9. 定型の「おすすめポイント」「詳細はお問合せを」などの無難な文言だけで埋めない
-10. charCount は caption の文字数（日本語1文字＝1）を自己点検して入れる
-11. 「Here is the JSON」など英語コメントは絶対に書かない`;
+9. 定型の「おすすめポイント」「詳細はお問合せを」だけで埋めない
+10. 文字のあいだに (20) や 21) のような番号を絶対に入れない
+11. charCount は数字だけ。文字ごとの番号付けは禁止
+12. 「Here is the JSON」など英語コメントは絶対に書かない`;
+  }
+
+  function looksLikeMachineDump(text) {
+    const body = String(text || "");
+    if (/"caption"\s*:|"observation"\s*:|"category"\s*:|"charCount"\s*:/.test(body)) return true;
+    if (/^\s*\{/.test(body)) return true;
+    const marks = body.match(/(?:\(\d+\)|\d+\))/g) || [];
+    return marks.length >= 4;
+  }
+
+  function stripCharIndexMarks(text) {
+    return String(text || "")
+      .replace(/\(\d+\)/g, "")
+      .replace(/\d+\)/g, "")
+      .replace(/\(\d*$/g, "")
+      .replace(/\s+/g, "")
+      .trim();
+  }
+
+  function decodeJsonStringFragment(raw) {
+    const sliced = String(raw || "").replace(/\\$/, "");
+    try {
+      return JSON.parse(`"${sliced}"`);
+    } catch (_) {
+      return sliced.replace(/\\n/g, "").replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+    }
+  }
+
+  function extractJsonStringField(raw, field) {
+    const re = new RegExp(`"${field}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)`);
+    const match = String(raw || "").match(re);
+    return match ? decodeJsonStringFragment(match[1]) : "";
+  }
+
+  function cleanCaptionCandidate(text) {
+    let body = clampCaptionBody(stripCaptionPrefix(text));
+    if (!body) return "";
+    if (looksLikeMachineDump(body)) {
+      body = clampCaptionBody(stripCharIndexMarks(body));
+    }
+    if (!body || looksLikeMachineDump(body)) return "";
+    return body;
   }
 
   function isUsableCaptionText(text) {
-    const body = clampCaptionBody(stripCaptionPrefix(text));
+    const body = cleanCaptionCandidate(text);
     if (!body) return false;
     if (/Here is|JSON|```|requested|following|caption\s*:/i.test(body)) return false;
     if (/^[A-Za-z0-9\s\{\}\[\]:"',.`_-]+$/.test(body)) return false;
@@ -1784,40 +1842,52 @@ ${lengthBlock}
   function parseCaptionResponse(text) {
     const categories = getCaptionCategories();
     const raw = String(text || "").trim();
+    let category = "";
+    let caption = "";
+
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       try {
         const data = JSON.parse(jsonMatch[0]);
-        let category = String(data.category || "").trim();
-        let caption = clampCaptionBody(stripCaptionPrefix(data.caption || ""));
-        if (!categories.includes(category)) {
-          const found = categories.find((c) => category.includes(c) || caption.includes(c));
-          category = found || "その他";
+        category = String(data.category || "").trim();
+        caption = cleanCaptionCandidate(data.caption || "");
+        if (!isUsableCaptionText(caption)) {
+          caption = cleanCaptionCandidate(data.observation || "");
         }
-        caption = clampCaptionBody(caption.replace(/^【[^】]*】\s*/, "").replace(/^■\s*/g, ""));
-        if (!isUsableCaptionText(caption)) throw new Error("empty caption");
-        return { category, caption };
       } catch (_) {
-        /* fallback below */
+        caption = "";
       }
     }
 
-    const cleaned = clampCaptionBody(
-      stripCaptionPrefix(
+    if (!isUsableCaptionText(caption)) {
+      const salvaged = [
+        extractJsonStringField(raw, "caption"),
+        (() => {
+          const obsMatch = raw.match(/"observat\w*"\s*:\s*"((?:\\.|[^"\\])*)/);
+          return obsMatch ? decodeJsonStringFragment(obsMatch[1]) : "";
+        })(),
+        looksLikeMachineDump(raw) ? stripCharIndexMarks(raw) : "",
+      ]
+        .map((value) => cleanCaptionCandidate(value))
+        .find((value) => isUsableCaptionText(value) && charLen(value) >= 8);
+      caption = salvaged || "";
+    }
+    if (!isUsableCaptionText(caption) && !looksLikeMachineDump(raw)) {
+      caption = cleanCaptionCandidate(
         raw
           .replace(/^```(?:json)?\s*|\s*```$/g, "")
           .replace(/^Here is[\s\S]*?:\s*/i, "")
           .replace(/^【[^】]*】\s*/, "")
           .replace(/^■\s*/g, "")
-          .trim()
-      )
-    );
-    if (!isUsableCaptionText(cleaned)) throw new Error("empty response");
-    const category =
-      categories.find((c) => cleaned.includes(c)) ||
-      categories.find((c) => raw.includes(c)) ||
-      "その他";
-    return { category, caption: cleaned };
+      );
+    }
+    if (!isUsableCaptionText(caption)) throw new Error("empty caption");
+
+    if (!categories.includes(category)) {
+      const found = categories.find((c) => category.includes(c) || caption.includes(c) || raw.includes(c));
+      category = found || "その他";
+    }
+    return { category, caption: cleanCaptionCandidate(caption) };
   }
 
   function explainGeminiError(err, data) {
@@ -1853,13 +1923,13 @@ ${lengthBlock}
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  async function callGeminiCaption(base64Jpeg, hintCategory, photoName = "") {
-    const prompt = buildCaptionPrompt(hintCategory, photoName);
+  async function callGeminiCaption(base64Jpeg, hintCategory, photoName = "", keywords = null) {
+    const prompt = buildCaptionPrompt(hintCategory, photoName, keywords);
     const baseBody = {
       systemInstruction: {
         parts: [
           {
-            text: `あなたは不動産物件写真のキャプション作家です。必ず日本語のJSONだけを返します。英語の説明やコードフェンスは禁止です。定型文に頼らず、写真から受ける印象を写っている事実に基づいて自然な日本語で表現します。写っていない設備は断定しません。文字数は指定上限にできるだけ近づけます（目標: 本文${getCaptionBodyMax()}文字）。`,
+            text: `あなたは不動産物件写真のキャプション作家です。必ず日本語のJSONだけを返します。キーは caption を最初にし、本文だけを入れます。observation は出力しません。文字のあいだに番号を入れません。写っていない設備は断定しません。文字数は本文${getCaptionBodyMax()}文字に近づけます。`,
           },
         ],
       },
@@ -1956,14 +2026,14 @@ ${lengthBlock}
     throw lastError || new Error("生成に失敗しました");
   }
 
-  async function expandCaptionToLimit(base64Jpeg, draftCaption, hintCategory) {
+  async function expandCaptionToLimit(base64Jpeg, draftCaption, hintCategory, keywords = null) {
     const bodyMax = getCaptionBodyMax();
     const draft = clampCaptionBody(stripCaptionPrefix(draftCaption));
     if (charLen(draft) >= Math.floor(bodyMax * 0.9)) return draft;
 
-    const keywords = getCaptionKeywords();
-    const keywordsLine = keywords
-      ? `アピールポイント・キーワード: ${keywords}
+    const keywordText = keywords == null ? getCaptionKeywords() : normalizeCaptionKeywords(keywords);
+    const keywordsLine = keywordText
+      ? `アピールポイント・キーワード: ${keywordText}
 - 写真と矛盾しないキーワードは、伸ばすときに自然に織り込んでよい
 - 写っていない設備はキーワードにあっても追加しない`
       : `アピールポイント・キーワード: （未入力）`;
@@ -2043,10 +2113,12 @@ ${keywordsLine}
 
     const source = canvasFromPhoto(photo);
     const base64 = imageToJpegBase64(source, 1536);
+    const keywords = keywordsForPhoto(photo);
+    photo.captionKeywords = keywords;
     let usedFallback = false;
     let result;
     try {
-      result = await callGeminiCaption(base64, category, photo.name || "");
+      result = await callGeminiCaption(base64, category, photo.name || "", keywords);
     } catch (err) {
       const fallback = pickFallbackCaption(category);
       result = { category: category || "その他", caption: fallback };
@@ -2062,7 +2134,7 @@ ${keywordsLine}
     } else if (!usedFallback && charLen(caption) < Math.floor(bodyMax * 0.85)) {
       if (syncUi) setAiStatus("文字数を上限近くまで調整中…");
       try {
-        caption = await expandCaptionToLimit(base64, caption, category || result.category);
+        caption = await expandCaptionToLimit(base64, caption, category || result.category, keywords);
       } catch (_) {
         /* keep original */
       }
@@ -2366,6 +2438,7 @@ ${keywordsLine}
     if (captionEmpty) captionEmpty.hidden = false;
     setUiCaptionCategory("");
     captionInput.value = "";
+    if (captionKeywords) captionKeywords.value = "";
     fillCaptionTemplates("");
     renderGallery();
     updateMosaicUndoUi();
@@ -2463,7 +2536,6 @@ ${keywordsLine}
     propertyAddress.value = "";
     savePropertyAddress();
     if (captionKeywords) captionKeywords.value = "";
-    saveCaptionKeywords();
     propertyType.value = "mansion";
     localStorage.setItem(PROPERTY_TYPE_STORAGE, "mansion");
     rebuildCaptionCategories(false);
@@ -2472,6 +2544,7 @@ ${keywordsLine}
       photo.name = photo.importName || photo.name;
       photo.caption = "";
       photo.captionCategory = "";
+      photo.captionKeywords = "";
     });
 
     const active = getActivePhoto();
@@ -2546,12 +2619,12 @@ ${keywordsLine}
   }
 
   async function addFiles(fileList) {
-    if (importBusy) return;
+    if (importBusy) return 0;
 
     const files = Array.from(fileList || []).filter(isImageFile);
     if (!files.length) {
       fileHint.textContent = "画像ファイルを選んでください（JPEG / PNG / WEBP など）";
-      return;
+      return 0;
     }
 
     const prevHint = fileHint.textContent;
@@ -2609,6 +2682,7 @@ ${keywordsLine}
             watermarkEnabled: isWatermarkEnabled(),
             watermarkPosition: getWatermarkPositionFromUi(),
             captionCategory: "",
+            captionKeywords: "",
             caption: "",
             pixelEdited: false,
           };
@@ -2628,7 +2702,7 @@ ${keywordsLine}
             : "画像を読み込めませんでした";
         notifyError(msg);
         fileHint.textContent = msg;
-        return;
+        return 0;
       }
 
       setImportLoading(true, {
@@ -2650,7 +2724,7 @@ ${keywordsLine}
         else clearEditor();
         notifyError("写真の表示に失敗しました。サイズが大きすぎる可能性があります");
         fileHint.textContent = "写真の表示に失敗しました";
-        return;
+        return 0;
       }
 
       const msg =
@@ -2659,12 +2733,519 @@ ${keywordsLine}
           : `${added.length}枚追加（合計 ${photos.length}枚）`;
       fileHint.textContent = msg;
       showToast(msg);
+      return added.length;
     } catch (err) {
       console.error(err);
       notifyError("写真の読み込みに失敗しました");
       fileHint.textContent = prevHint || "読み込みに失敗しました";
+      return 0;
     } finally {
       setImportLoading(false);
+    }
+  }
+
+  const MAPS_KEY_STORAGE = "lumen-google-maps-api-key";
+  let mapsLoadPromise = null;
+  let streetViewPanorama = null;
+  let streetViewReady = false;
+
+  function setStreetViewStatus(message) {
+    if (streetViewStatus) streetViewStatus.textContent = message || "";
+  }
+
+  function getMapsApiKey() {
+    return (streetViewApiKey?.value || localStorage.getItem(MAPS_KEY_STORAGE) || "").trim();
+  }
+
+  function saveMapsApiKey() {
+    const key = (streetViewApiKey?.value || "").trim();
+    if (key) localStorage.setItem(MAPS_KEY_STORAGE, key);
+    else localStorage.removeItem(MAPS_KEY_STORAGE);
+  }
+
+  function loadGoogleMaps(key) {
+    if (window.google?.maps?.importLibrary && window.google?.maps?.places?.PlacesService) {
+      return Promise.resolve();
+    }
+    if (mapsLoadPromise) return mapsLoadPromise;
+    mapsLoadPromise = new Promise((resolve, reject) => {
+      const callback = `__lumenMapsReady_${Date.now()}`;
+      window[callback] = () => {
+        delete window[callback];
+        resolve();
+      };
+      const script = document.createElement("script");
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&v=weekly&language=ja&region=JP&libraries=places,geometry&callback=${callback}`;
+      script.async = true;
+      script.onerror = () => {
+        mapsLoadPromise = null;
+        delete window[callback];
+        reject(new Error("Googleマップを読み込めませんでした"));
+      };
+      document.head.appendChild(script);
+    });
+    return mapsLoadPromise;
+  }
+
+  function findPlaceByName(query) {
+    return new Promise((resolve, reject) => {
+      if (!window.google?.maps?.places?.PlacesService) {
+        resolve(null);
+        return;
+      }
+      const service = new google.maps.places.PlacesService(streetViewPano || document.createElement("div"));
+      service.textSearch({ query, region: "jp" }, (results, status) => {
+        if (status === "OK" && results?.[0]?.geometry?.location) {
+          const place = results[0];
+          resolve({
+            location: place.geometry.location,
+            label: place.name || place.formatted_address || query,
+          });
+          return;
+        }
+        if (status === "REQUEST_DENIED") {
+          reject(new Error("Places API が無効です。Google Cloud で Places API を有効にしてください"));
+          return;
+        }
+        resolve(null);
+      });
+    });
+  }
+
+  function findPlaceByAddress(query) {
+    return new Promise((resolve, reject) => {
+      const geocoder = new google.maps.Geocoder();
+      geocoder.geocode({ address: query, region: "jp" }, (results, status) => {
+        if (status === "OK" && results?.[0]?.geometry?.location) {
+          const place = results[0];
+          resolve({
+            location: place.geometry.location,
+            label: place.formatted_address || query,
+          });
+          return;
+        }
+        if (status === "REQUEST_DENIED") {
+          reject(new Error("APIキーが無効か、Geocoding API が無効です"));
+          return;
+        }
+        resolve(null);
+      });
+    });
+  }
+
+  function looksLikeAddress(query) {
+    return /[0-9０-９]|丁目|番地|号|[都道府県市区町村]/.test(query);
+  }
+
+  async function findStreetViewTarget(query) {
+    if (looksLikeAddress(query)) {
+      const byAddress = await findPlaceByAddress(query);
+      if (byAddress) return byAddress;
+      return findPlaceByName(query);
+    }
+    try {
+      const byName = await findPlaceByName(query);
+      if (byName) return byName;
+    } catch (err) {
+      const byAddress = await findPlaceByAddress(query);
+      if (byAddress) return byAddress;
+      throw err;
+    }
+    return findPlaceByAddress(query);
+  }
+
+  function headingToward(fromLatLng, toLatLng, fallback) {
+    const spherical = window.google?.maps?.geometry?.spherical;
+    if (!spherical || !fromLatLng || !toLatLng) return fallback || 0;
+    const heading = spherical.computeHeading(fromLatLng, toLatLng);
+    return Number.isFinite(heading) ? heading : fallback || 0;
+  }
+
+  function hideStreetView() {
+    if (streetViewStage) streetViewStage.hidden = true;
+  }
+
+  function showStreetView() {
+    if (!streetViewStage) return;
+    if (streetViewAddress && !streetViewAddress.value.trim()) {
+      streetViewAddress.value = getPropertyAddress();
+    }
+    streetViewStage.hidden = false;
+    setStreetViewStatus("住所・施設名・店舗名を入れて「表示」を押すと、ドラッグで向きを変えられます。");
+  }
+
+  function streetViewFileName() {
+    const bases = new Set(photos.map((photo) => splitFileName(photo.name).base));
+    if (!bases.has("周辺")) return "周辺.jpg";
+    let n = 2;
+    while (bases.has(`周辺${n}`)) n += 1;
+    return `周辺${n}.jpg`;
+  }
+
+  function fovFromStreetViewZoom(zoom) {
+    const value = Number(zoom);
+    const safe = Number.isFinite(value) ? value : 1;
+    return Math.max(20, Math.min(120, Math.round(180 / 2 ** safe)));
+  }
+
+  async function openStreetViewAtAddress() {
+    const key = getMapsApiKey();
+    if (!key) {
+      setStreetViewStatus("Googleマップ APIキーを下に入れてから表示してください。");
+      streetViewApiKey?.closest("details")?.setAttribute("open", "");
+      streetViewApiKey?.focus();
+      return;
+    }
+    const query = (streetViewAddress?.value || "").trim();
+    if (!query) {
+      setStreetViewStatus("住所・施設名・店舗名を入力してください。");
+      streetViewAddress?.focus();
+      return;
+    }
+    saveMapsApiKey();
+    streetViewReady = false;
+    if (streetViewCaptureBtn) streetViewCaptureBtn.disabled = true;
+    if (streetViewSearchBtn) streetViewSearchBtn.disabled = true;
+    setStreetViewStatus("場所を探しています…");
+    try {
+      await loadGoogleMaps(key);
+      const found = await findStreetViewTarget(query);
+      if (!found) throw new Error("場所が見つかりませんでした。住所・施設名・店舗名を確認してください");
+      const { location, label } = found;
+      const panoramaData = await new Promise((resolve, reject) => {
+        const service = new google.maps.StreetViewService();
+        service.getPanorama({ location, radius: 80, source: google.maps.StreetViewSource.OUTDOOR }, (data, status) => {
+          if (status === "OK" && data?.location?.pano) {
+            resolve(data);
+            return;
+          }
+          reject(new Error("この場所の近くにストリートビューがありません"));
+        });
+      });
+      const heading = headingToward(
+        panoramaData.location.latLng,
+        location,
+        panoramaData.tiles?.centerHeading || 0,
+      );
+      streetViewPanorama = new google.maps.StreetViewPanorama(streetViewPano, {
+        pano: panoramaData.location.pano,
+        pov: { heading, pitch: 0 },
+        zoom: 1,
+        addressControl: true,
+        fullscreenControl: false,
+        motionTracking: false,
+        motionTrackingControl: false,
+      });
+      streetViewReady = true;
+      if (streetViewCaptureBtn) streetViewCaptureBtn.disabled = false;
+      setStreetViewStatus(`「${label}」の近くです。ドラッグで向きを変え、よければ「この画面を写真にする」。`);
+    } catch (err) {
+      console.warn(err);
+      const message = err?.message || "ストリートビューを表示できませんでした";
+      setStreetViewStatus(message);
+      showToast(message, { error: true });
+    } finally {
+      if (streetViewSearchBtn) streetViewSearchBtn.disabled = false;
+    }
+  }
+
+  function wrapHeading(deg) {
+    return ((deg % 360) + 360) % 360;
+  }
+
+  function verticalFov(horizontalFov, width, height) {
+    const half = ((horizontalFov * Math.PI) / 180) / 2;
+    const vHalf = Math.atan(Math.tan(half) * (height / Math.max(1, width)));
+    return (vHalf * 2 * 180) / Math.PI;
+  }
+
+  function fovFromTan(tanHalf) {
+    return (Math.atan(tanHalf) * 2 * 180) / Math.PI;
+  }
+
+  function headingPitchFromDir(dir) {
+    return {
+      heading: (Math.atan2(dir[0], dir[1]) * 180) / Math.PI,
+      pitch: (Math.asin(Math.max(-1, Math.min(1, dir[2]))) * 180) / Math.PI,
+    };
+  }
+
+  function streetViewBasis(headingDeg, pitchDeg, horizontalFov, verticalFov) {
+    const heading = (headingDeg * Math.PI) / 180;
+    const pitch = (pitchDeg * Math.PI) / 180;
+    const cosH = Math.cos(heading);
+    const sinH = Math.sin(heading);
+    const cosP = Math.cos(pitch);
+    const sinP = Math.sin(pitch);
+    return {
+      forward: [sinH * cosP, cosH * cosP, sinP],
+      right: [cosH, -sinH, 0],
+      up: [-sinH * sinP, -cosH * sinP, cosP],
+      tanH: Math.tan(((horizontalFov * Math.PI) / 180) / 2),
+      tanV: Math.tan(((verticalFov * Math.PI) / 180) / 2),
+    };
+  }
+
+  function streetViewRay(nx, ny, camera) {
+    const x = camera.forward[0] + camera.right[0] * nx * camera.tanH + camera.up[0] * ny * camera.tanV;
+    const y = camera.forward[1] + camera.right[1] * nx * camera.tanH + camera.up[1] * ny * camera.tanV;
+    const z = camera.forward[2] + camera.right[2] * nx * camera.tanH + camera.up[2] * ny * camera.tanV;
+    const len = Math.hypot(x, y, z) || 1;
+    return [x / len, y / len, z / len];
+  }
+
+  function projectStreetView(dir, camera) {
+    const z = dir[0] * camera.forward[0] + dir[1] * camera.forward[1] + dir[2] * camera.forward[2];
+    if (z <= 0.05) return null;
+    const x = dir[0] * camera.right[0] + dir[1] * camera.right[1] + dir[2] * camera.right[2];
+    const y = dir[0] * camera.up[0] + dir[1] * camera.up[1] + dir[2] * camera.up[2];
+    const nx = x / z / camera.tanH;
+    const ny = y / z / camera.tanV;
+    if (nx < -1 || nx > 1 || ny < -1 || ny > 1) return null;
+    return { nx, ny, score: nx * nx + ny * ny };
+  }
+
+  function readBitmapPixels(bitmap) {
+    const surface = document.createElement("canvas");
+    surface.width = bitmap.width;
+    surface.height = bitmap.height;
+    const context = surface.getContext("2d", { willReadFrequently: true });
+    context.drawImage(bitmap, 0, 0);
+    bitmap.close?.();
+    return context.getImageData(0, 0, surface.width, surface.height);
+  }
+
+  function sampleBitmap(image, x, y) {
+    const w = image.width;
+    const h = image.height;
+    const data = image.data;
+    const x0 = Math.max(0, Math.min(w - 1, Math.floor(x)));
+    const y0 = Math.max(0, Math.min(h - 1, Math.floor(y)));
+    const x1 = Math.min(w - 1, x0 + 1);
+    const y1 = Math.min(h - 1, y0 + 1);
+    const tx = Math.max(0, Math.min(1, x - x0));
+    const ty = Math.max(0, Math.min(1, y - y0));
+    const row0 = y0 * w;
+    const row1 = y1 * w;
+    const i00 = (row0 + x0) * 4;
+    const i10 = (row0 + x1) * 4;
+    const i01 = (row1 + x0) * 4;
+    const i11 = (row1 + x1) * 4;
+    const w00 = (1 - tx) * (1 - ty);
+    const w10 = tx * (1 - ty);
+    const w01 = (1 - tx) * ty;
+    const w11 = tx * ty;
+    return [
+      data[i00] * w00 + data[i10] * w10 + data[i01] * w01 + data[i11] * w11,
+      data[i00 + 1] * w00 + data[i10 + 1] * w10 + data[i01 + 1] * w01 + data[i11 + 1] * w11,
+      data[i00 + 2] * w00 + data[i10 + 2] * w10 + data[i01 + 2] * w01 + data[i11 + 2] * w11,
+    ];
+  }
+
+  async function fetchStreetViewBitmap({ pano, location, heading, pitch, fov, width, height, key }) {
+    const url = new URL("https://maps.googleapis.com/maps/api/streetview");
+    url.searchParams.set("size", `${Math.round(width)}x${Math.round(height)}`);
+    if (pano) url.searchParams.set("pano", pano);
+    else if (location) url.searchParams.set("location", location);
+    url.searchParams.set("heading", String(wrapHeading(heading)));
+    url.searchParams.set("pitch", String(Math.max(-90, Math.min(90, pitch))));
+    url.searchParams.set("fov", String(Math.max(10, Math.min(120, fov))));
+    url.searchParams.set("source", "outdoor");
+    url.searchParams.set("return_error_code", "true");
+    url.searchParams.set("key", key);
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error("写真の取得に失敗しました。Street View Static API が有効か確認してください");
+    }
+    const blob = await response.blob();
+    if (!blob.type.startsWith("image/")) {
+      throw new Error("ストリートビュー画像を取得できませんでした");
+    }
+    return createImageBitmap(blob);
+  }
+
+  function streetViewTiles(heading, pitch, fov, aspect) {
+    const view = streetViewBasis(heading, pitch, fov, verticalFov(fov, aspect, 1));
+    return [
+      [-0.5, 0.5],
+      [0.5, 0.5],
+      [-0.5, -0.5],
+      [0.5, -0.5],
+    ].map(([cx, cy]) => {
+      const pose = headingPitchFromDir(streetViewRay(cx, cy, view));
+      const probe = streetViewBasis(pose.heading, pose.pitch, 90, 90);
+      let maxX = 0;
+      let maxY = 0;
+      [
+        [cx - 0.5, cy - 0.5],
+        [cx + 0.5, cy - 0.5],
+        [cx - 0.5, cy + 0.5],
+        [cx + 0.5, cy + 0.5],
+      ].forEach(([nx, ny]) => {
+        const dir = streetViewRay(nx, ny, view);
+        const z =
+          dir[0] * probe.forward[0] + dir[1] * probe.forward[1] + dir[2] * probe.forward[2];
+        const x = dir[0] * probe.right[0] + dir[1] * probe.right[1] + dir[2] * probe.right[2];
+        const y = dir[0] * probe.up[0] + dir[1] * probe.up[1] + dir[2] * probe.up[2];
+        maxX = Math.max(maxX, Math.abs(x / z));
+        maxY = Math.max(maxY, Math.abs(y / z));
+      });
+      const tanH = maxX * 1.04;
+      const tanV = maxY * 1.04;
+      const tileFov = fovFromTan(tanH);
+      const tileAspect = tanH / Math.max(0.01, tanV);
+      let width = 640;
+      let height = Math.round(width / tileAspect);
+      if (height > 640) {
+        height = 640;
+        width = Math.round(height * tileAspect);
+      }
+      width = Math.max(100, Math.min(640, width));
+      height = Math.max(100, Math.min(640, height));
+      return {
+        ...pose,
+        fov: tileFov,
+        width,
+        height,
+        camera: streetViewBasis(pose.heading, pose.pitch, tileFov, verticalFov(tileFov, width, height)),
+      };
+    });
+  }
+
+  async function captureStreetViewBitmap({ pano, heading, pitch, fov, aspect, key }) {
+    const tiles = streetViewTiles(heading, pitch, fov, aspect);
+    const bitmaps = await Promise.all(
+      tiles.map((tile) =>
+        fetchStreetViewBitmap({
+          pano,
+          heading: tile.heading,
+          pitch: tile.pitch,
+          fov: tile.fov,
+          width: tile.width,
+          height: tile.height,
+          key,
+        }).then((bitmap) => ({
+          image: readBitmapPixels(bitmap),
+          camera: tile.camera,
+        })),
+      ),
+    );
+    let outW = 1280;
+    let outH = Math.round(outW / aspect);
+    if (outH > 1280) {
+      outH = 1280;
+      outW = Math.round(outH * aspect);
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = outW;
+    canvas.height = outH;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    const output = context.createImageData(outW, outH);
+    const pixels = output.data;
+    const view = streetViewBasis(heading, pitch, fov, verticalFov(fov, aspect, 1));
+    for (let y = 0; y < outH; y += 1) {
+      const ny = 1 - ((y + 0.5) / outH) * 2;
+      for (let x = 0; x < outW; x += 1) {
+        const nx = ((x + 0.5) / outW) * 2 - 1;
+        const dir = streetViewRay(nx, ny, view);
+        let best = null;
+        let bestTile = null;
+        bitmaps.forEach((tile) => {
+          const hit = projectStreetView(dir, tile.camera);
+          if (!hit) return;
+          if (!best || hit.score < best.score) {
+            best = hit;
+            bestTile = tile;
+          }
+        });
+        const index = (y * outW + x) * 4;
+        if (!bestTile) {
+          pixels[index + 3] = 255;
+          continue;
+        }
+        const sample = sampleBitmap(
+          bestTile.image,
+          ((best.nx + 1) / 2) * bestTile.image.width - 0.5,
+          ((1 - best.ny) / 2) * bestTile.image.height - 0.5,
+        );
+        pixels[index] = sample[0];
+        pixels[index + 1] = sample[1];
+        pixels[index + 2] = sample[2];
+        pixels[index + 3] = 255;
+      }
+    }
+    context.putImageData(output, 0, 0);
+    const blob = await new Promise((resolve, reject) => {
+      canvas.toBlob(
+        (result) => (result ? resolve(result) : reject(new Error("写真を書き出せませんでした"))),
+        "image/jpeg",
+        0.95,
+      );
+    });
+    return blob;
+  }
+
+  async function captureStreetView() {
+    if (!streetViewPanorama || !streetViewReady) {
+      setStreetViewStatus("先にストリートビューを表示してください。");
+      return;
+    }
+    const key = getMapsApiKey();
+    const position = streetViewPanorama.getPosition();
+    const pov = streetViewPanorama.getPov();
+    if (!key || !position) return;
+    const heading = Number(pov?.heading) || 0;
+    const pitch = Number(pov?.pitch) || 0;
+    const fov = fovFromStreetViewZoom(streetViewPanorama.getZoom());
+    const pano = streetViewPanorama.getPano();
+    const rect = streetViewPano.getBoundingClientRect();
+    const aspect = rect.width > 0 && rect.height > 0 ? rect.width / rect.height : 4 / 3;
+    if (streetViewCaptureBtn) streetViewCaptureBtn.disabled = true;
+    setStreetViewStatus("高画質でこの画面を写真にしています…");
+    try {
+      let blob;
+      try {
+        if (!pano) throw new Error("パノラマがありません");
+        blob = await captureStreetViewBitmap({ pano, heading, pitch, fov, aspect, key });
+      } catch (stitchErr) {
+        console.warn(stitchErr);
+        const bitmap = await fetchStreetViewBitmap({
+          pano: pano || undefined,
+          heading,
+          pitch,
+          fov,
+          width: 640,
+          height: Math.max(100, Math.min(640, Math.round(640 / aspect))),
+          key,
+          location: `${position.lat()},${position.lng()}`,
+        });
+        const fallback = document.createElement("canvas");
+        fallback.width = bitmap.width;
+        fallback.height = bitmap.height;
+        fallback.getContext("2d").drawImage(bitmap, 0, 0);
+        bitmap.close?.();
+        blob = await new Promise((resolve, reject) => {
+          fallback.toBlob(
+            (result) => (result ? resolve(result) : reject(new Error("写真を書き出せませんでした"))),
+            "image/jpeg",
+            0.95,
+          );
+        });
+      }
+      const file = new File([blob], streetViewFileName(), { type: "image/jpeg" });
+      const added = await addFiles([file]);
+      if (!added) return;
+      hideStreetView();
+      setPanelTab("edit");
+      setTool("crop");
+      showToast("ストリートビューを追加しました。枠を調整してトリミングできます");
+    } catch (err) {
+      console.warn(err);
+      const message = err?.message || "写真にできませんでした";
+      setStreetViewStatus(message);
+      showToast(message, { error: true });
+    } finally {
+      if (streetViewCaptureBtn) streetViewCaptureBtn.disabled = !streetViewReady;
     }
   }
 
@@ -5327,6 +5908,52 @@ ${keywordsLine}
     if (files?.length) addFiles(files);
   });
 
+  window.addEventListener("paste", (e) => {
+    const tag = e.target?.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || e.target?.isContentEditable) return;
+    const items = Array.from(e.clipboardData?.items || []);
+    const files = items
+      .filter((item) => item.type.startsWith("image/"))
+      .map((item) => item.getAsFile())
+      .filter(Boolean);
+    if (!files.length || importBusy) return;
+    e.preventDefault();
+    addFiles(files);
+  });
+
+  if (streetViewApiKey) {
+    streetViewApiKey.value = localStorage.getItem(MAPS_KEY_STORAGE) || "";
+    streetViewApiKey.addEventListener("change", saveMapsApiKey);
+  }
+  if (openStreetViewBtn) {
+    openStreetViewBtn.addEventListener("click", () => {
+      showStreetView();
+    });
+  }
+  if (streetViewCloseBtn) {
+    streetViewCloseBtn.addEventListener("click", () => {
+      hideStreetView();
+    });
+  }
+  if (streetViewSearchBtn) {
+    streetViewSearchBtn.addEventListener("click", () => {
+      openStreetViewAtAddress();
+    });
+  }
+  if (streetViewCaptureBtn) {
+    streetViewCaptureBtn.addEventListener("click", () => {
+      captureStreetView();
+    });
+  }
+  if (streetViewAddress) {
+    streetViewAddress.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        openStreetViewAtAddress();
+      }
+    });
+  }
+
   const stage = document.getElementById("stage");
   ["dragenter", "dragover"].forEach((type) => {
     stage.addEventListener(type, (e) => {
@@ -5352,7 +5979,7 @@ ${keywordsLine}
     clearListingInfoBtn.addEventListener("click", () => {
       const hasPhotos = photos.length > 0;
       const hasAddress = Boolean((propertyAddress?.value || "").trim());
-      const hasKeywords = Boolean(getCaptionKeywords());
+      const hasKeywords = photos.some((photo) => normalizeCaptionKeywords(photo.captionKeywords)) || Boolean(getCaptionKeywords());
       if (!hasPhotos && !hasAddress && !hasKeywords && propertyType.value === "mansion") {
         showToast("クリアする入力情報がありません");
         return;
@@ -5365,7 +5992,7 @@ ${keywordsLine}
     homeBtn.addEventListener("click", () => {
       const hasPhotos = photos.length > 0;
       const hasAddress = Boolean((propertyAddress?.value || "").trim());
-      const hasKeywords = Boolean(getCaptionKeywords());
+      const hasKeywords = photos.some((photo) => normalizeCaptionKeywords(photo.captionKeywords)) || Boolean(getCaptionKeywords());
       const hasType = propertyType.value !== "mansion";
       if (!hasPhotos && !hasAddress && !hasKeywords && !hasType) {
         setPanelTab("photos");
@@ -5521,9 +6148,14 @@ ${keywordsLine}
   propertyAddress.addEventListener("blur", savePropertyAddress);
 
   if (captionKeywords) {
-    captionKeywords.value = localStorage.getItem(CAPTION_KEYWORDS_STORAGE) || "";
+    captionKeywords.addEventListener("input", saveCaptionKeywords);
     captionKeywords.addEventListener("change", saveCaptionKeywords);
-    captionKeywords.addEventListener("blur", saveCaptionKeywords);
+    captionKeywords.addEventListener("blur", () => {
+      saveCaptionKeywords();
+      const photo = getActivePhoto();
+      if (!photo || document.activeElement === captionKeywords) return;
+      captionKeywords.value = photo.captionKeywords || "";
+    });
   }
 
   restoreWatermarkPreference();
@@ -7052,16 +7684,23 @@ ${keywordsLine}
     return false;
   }
 
+  function setFolderHint(text, { empty = false } = {}) {
+    if (!folderHint) return;
+    folderHint.textContent = text;
+    folderHint.title = text;
+    folderHint.classList.toggle("is-empty", empty);
+  }
+
   function updateFolderHint() {
     if (!canUseFolderSave) {
-      folderHint.textContent = "このブラウザはフォルダ保存未対応（ダウンロードを使ってください）";
+      setFolderHint("フォルダ保存未対応");
       pickFolderBtn.disabled = true;
       return;
     }
     if (saveDirHandle) {
-      folderHint.textContent = `選択中: ${saveDirHandle.name}`;
+      setFolderHint(saveDirHandle.name);
     } else {
-      folderHint.textContent = "未設定（初回に選択）";
+      setFolderHint("未設定", { empty: true });
     }
   }
 
@@ -7208,7 +7847,7 @@ ${keywordsLine}
 
   async function pickSaveFolder() {
     if (!canUseFolderSave) {
-      folderHint.textContent = "フォルダ保存には Chrome / Edge が必要です";
+      setFolderHint("フォルダ保存には Chrome / Edge が必要です");
       return;
     }
     try {
@@ -7223,7 +7862,7 @@ ${keywordsLine}
       fileHint.textContent = `保存先を「${handle.name}」に設定しました`;
     } catch (err) {
       if (err && err.name === "AbortError") return;
-      folderHint.textContent = "フォルダを選べませんでした";
+      setFolderHint("フォルダを選べませんでした", { empty: !saveDirHandle });
     }
   }
 

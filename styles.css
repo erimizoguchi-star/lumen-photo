@@ -91,9 +91,50 @@ input {
   letter-spacing: 0.02em;
 }
 
+.topbar-folder {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+  margin-left: auto;
+}
+
+.topbar-folder-label {
+  flex: none;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.topbar-folder-name {
+  min-width: 0;
+  max-width: 16rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.4rem 0.75rem;
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid var(--line);
+  color: var(--ink);
+}
+
+.topbar-folder-name.is-empty {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.topbar-folder .btn {
+  flex: none;
+  padding: 0.45rem 0.85rem;
+}
+
 .topbar-actions {
   display: flex;
   gap: 0.6rem;
+  flex: none;
 }
 
 .btn {
@@ -1101,6 +1142,80 @@ input {
   display: none !important;
 }
 
+.streetview-stage {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  background: #e7ece8;
+}
+
+.streetview-stage[hidden] {
+  display: none !important;
+}
+
+.streetview-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: end;
+  padding: 0.7rem 0.8rem;
+  background: rgba(255, 255, 255, 0.94);
+  border-bottom: 1px solid var(--line);
+}
+
+.streetview-address {
+  display: grid;
+  gap: 0.2rem;
+  flex: 1;
+  min-width: 12rem;
+}
+
+.streetview-address span {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.streetview-address input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.55rem 0.7rem;
+  background: #fff;
+  color: var(--ink);
+}
+
+.streetview-pano {
+  flex: 1;
+  min-height: 0;
+  background: #d5ddd8;
+}
+
+.streetview-status {
+  margin: 0;
+  padding: 0.45rem 0.8rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.streetview-key {
+  padding: 0.35rem 0.8rem 0.7rem;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.streetview-key summary {
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.streetview-key .field {
+  margin-top: 0.45rem;
+}
+
 .dropzone {
   display: grid;
   place-items: center;
@@ -1375,6 +1490,21 @@ input {
 }
 
 @media (max-width: 900px) {
+  .topbar {
+    flex-wrap: wrap;
+  }
+
+  .topbar-folder {
+    order: 3;
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .topbar-folder-name {
+    flex: 1;
+    max-width: none;
+  }
+
   .workspace {
     grid-template-columns: 1fr;
     padding: 1rem;
