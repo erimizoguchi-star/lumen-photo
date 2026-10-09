@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const APP_VERSION = "52";
+  const APP_VERSION = "53";
 
   const fileInput = document.getElementById("fileInput");
   const fileHint = document.getElementById("fileHint");
@@ -33,6 +33,14 @@
   const downloadAllBtn = document.getElementById("downloadAllBtn");
   const saveBtn = document.getElementById("saveBtn");
   const saveAllBtn = document.getElementById("saveAllBtn");
+  const sendToPropertyBtn = document.getElementById("sendToPropertyBtn");
+  // 物件情報管理システムから渡された、仕上がった写真の送り先（期限つきの受付票を含む）。無ければ null
+  let propertyUploadUrl = null;
+  // 物件情報管理システムから読み込んだ写真の「読み込み時のファイル名 → 元ファイルの ID」。
+  // 編集して送り返すとき、元の写真と置き換えるために使う
+  const propertySourceIdByImportName = new Map();
+  // 画像を送ってよい相手（物件情報管理システム）。それ以外の送り先は無視する
+  const PROPERTY_UPLOAD_HOSTS = ["property-signage.vercel.app"];
   const pickFolderBtn = document.getElementById("pickFolderBtn");
   const folderHint = document.getElementById("folderHint");
   const gallery = document.getElementById("gallery");
@@ -336,6 +344,18 @@
   };
 
   let activeExportPreset = DEFAULT_EXPORT_PRESET;
+
+  /**
+   * 「物件へ送る」で送る写真の大きさ。チラシ（印刷）や他サイトでも使えるよう、IRI 用の縮小は掛けずに
+   * 長辺 2400px・1.5MB 以内で送る（物件情報管理システムの受け口がそのまま保存できる上限）。
+   * IRI 用のサイズはダウンロード時に、選んでいる IRI 登録サイズで作る。
+   */
+  const SEND_TARGET = { longEdge: 2400, maxBytes: 1.5 * 1024 * 1024 };
+
+  function resolveSendTargetSize(srcW, srcH) {
+    const size = fitWithinBox(srcW, srcH, 1, 1, SEND_TARGET.longEdge, SEND_TARGET.longEdge, { allowUpscale: false });
+    return { ...size, fitMode: "stretch" };
+  }
 
   /** @type {Record<string, { name: string, zenith: {r:number,g:number,b:number}, horizon: {r:number,g:number,b:number}, haze: {r:number,g:number,b:number,strength:number}|null, glow: {r:number,g:number,b:number,strength:number}|null, clouds: number, warmth: number }>} */
   const SKY_PRESETS = {
@@ -993,6 +1013,10 @@
     saveAllBtn.hidden = !multi;
     downloadAllBtn.disabled = !multi;
     saveAllBtn.disabled = !multi;
+    if (sendToPropertyBtn) {
+      sendToPropertyBtn.hidden = !propertyUploadUrl;
+      sendToPropertyBtn.disabled = !propertyUploadUrl || photos.length < 1;
+    }
     if (batchResizeBox) {
       batchResizeBox.hidden = photos.length < 1;
     }
@@ -1653,6 +1677,274 @@
 
   function getPropertyAddress() {
     return (propertyAddress?.value || "").trim();
+  }
+
+  /**
+   * 物件情報管理システムから渡される物件情報（URL の ?property= / name= / address= / type=）。
+   * 何も渡されていなければ null。
+   */
+  function readPropertyLinkFromUrl() {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const clean = (key, max) => (params.get(key) || "").trim().slice(0, max);
+      const link = {
+        propertyId: clean("property", 80),
+        name: clean("name", 120),
+        address: clean("address", 200),
+        type: clean("type", 10),
+        uploadUrl: parsePropertyUploadUrl(params.get("upload")),
+      };
+      return link.propertyId || link.name || link.address ? link : null;
+    } catch (_err) {
+      return null;
+    }
+  }
+
+  /** 送り先が物件情報管理システムのものかを確かめる。違えば null（送らない） */
+  function parsePropertyUploadUrl(raw) {
+    if (!raw) return null;
+    try {
+      const url = new URL(raw);
+      // 開発中（このアプリ自体を localhost で開いているとき）だけ、手元の物件情報管理システムも相手にできる
+      const local = url.hostname === "localhost" && window.location.hostname === "localhost";
+      if (url.protocol !== "https:" && !local) return null;
+      if (!PROPERTY_UPLOAD_HOSTS.includes(url.hostname) && !local) return null;
+      if (!url.pathname.startsWith("/api/integrations/assets")) return null;
+      return url.toString();
+    } catch (_err) {
+      return null;
+    }
+  }
+
+  /** 送り先（受付票）をアドレスバーから消す。URL を人に渡したときに紛れ込ませないため */
+  function removeUploadFromAddressBar() {
+    try {
+      const url = new URL(window.location.href);
+      if (!url.searchParams.has("upload")) return;
+      url.searchParams.delete("upload");
+      window.history.replaceState(null, "", url);
+    } catch (_err) {
+      /* アドレスバーを書き換えられなくても動作に影響しない */
+    }
+  }
+
+  /** 物件情報管理システムにある、この物件の写真（広告シートの「物件写真」の枠）の一覧。取得できなければ空 */
+  async function fetchPropertyPhotoSources() {
+    if (!propertyUploadUrl) return [];
+    try {
+      const response = await fetch(propertyUploadUrl);
+      if (!response.ok) return [];
+      const data = await response.json();
+      return Array.isArray(data.sources) ? data.sources.filter((s) => s && s.kind === "image") : [];
+    } catch (_err) {
+      return [];
+    }
+  }
+
+  /** 物件情報管理システムの写真を読み込み、「写真を追加」と同じように取り込む */
+  async function loadPropertyPhotos(sources) {
+    if (!propertyUploadUrl || !sources.length || importBusy) return;
+    const loadBtn = document.getElementById("loadPropertyPhotosBtn");
+    if (loadBtn) loadBtn.disabled = true;
+    const loaded = new Array(sources.length).fill(null);
+    let failed = 0;
+    let done = 0;
+    setImportLoading(true, { title: "物件の写真を読み込んでいます", detail: `0/${sources.length}` });
+
+    const loadOne = async (i) => {
+      try {
+        const url = new URL(propertyUploadUrl);
+        url.searchParams.set("file", sources[i].id);
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`読み込みに失敗しました（${response.status}）`);
+        const blob = await response.blob();
+        const base = String(sources[i].name || "photo").replace(/\.[^.]+$/, "");
+        // 同じ名前の写真があっても取り違えないよう、番号を付ける
+        const name = `${String(i + 1).padStart(2, "0")}_${base}.jpg`;
+        loaded[i] = new File([blob], name, { type: "image/jpeg" });
+        propertySourceIdByImportName.set(name, sources[i].id);
+      } catch (err) {
+        console.warn(err);
+        failed += 1;
+      }
+      done += 1;
+      setImportLoading(true, {
+        title: "物件の写真を読み込んでいます",
+        detail: `${done}/${sources.length}`,
+        progress: Math.round((done / sources.length) * 100),
+      });
+    };
+
+    try {
+      // 3枚ずつ並行して読み込む（順番は元のまま保つ）
+      let next = 0;
+      const worker = async () => {
+        while (next < sources.length) {
+          const i = next;
+          next += 1;
+          await loadOne(i);
+        }
+      };
+      await Promise.all([worker(), worker(), worker()]);
+    } finally {
+      setImportLoading(false);
+      if (loadBtn) loadBtn.disabled = false;
+    }
+    const files = loaded.filter(Boolean);
+    if (files.length) await addFiles(files);
+    const loadedNames = new Set(files.map((f) => f.name));
+    photos.forEach((p) => {
+      if (loadedNames.has(p.importName)) p.fromProperty = true;
+    });
+    renderGallery();
+    updatePropertyLinkStatus();
+    if (failed > 0) showToast(`${failed}枚は読み込めませんでした`, { error: true });
+  }
+
+  /**
+   * 仕上げた写真をすべて、物件情報管理システムの広告シート（物件写真の枠）へ送る。
+   * 写真は保存・ダウンロードと同じ仕上がり（サイズ・透かし）で、説明文も一緒に送る。
+   */
+  async function sendAllToPropertySystem() {
+    if (!propertyUploadUrl || !photos.length) return;
+    snapshotPhotoSettings();
+    persistCaptionFromUi();
+
+    let sent = 0;
+    let failed = 0;
+    let firstError = "";
+    sendToPropertyBtn.disabled = true;
+    saveBtn.disabled = true;
+    downloadBtn.disabled = true;
+    setImportLoading(true, { title: "物件情報管理システムへ送っています", detail: `0/${photos.length}` });
+
+    try {
+      for (let i = 0; i < photos.length; i += 1) {
+        const photo = photos[i];
+        setImportLoading(true, {
+          title: "物件情報管理システムへ送っています",
+          detail: `${i + 1}/${photos.length}`,
+          progress: Math.round(((i + 1) / photos.length) * 100),
+        });
+        try {
+          const exportCanvas = await buildExportCanvas(photo, { targetSize: resolveSendTargetSize });
+          if (!exportCanvas) throw new Error("画像を書き出せませんでした");
+          await yieldToUi();
+          const result = await exportUnderLimit(exportCanvas, SEND_TARGET.maxBytes);
+          const blob = result.blob || dataUrlToBlob(result.url);
+          if (result.revokeUrl && result.url) URL.revokeObjectURL(result.url);
+
+          const form = new FormData();
+          form.append("file", new File([blob], `photo-${i + 1}.jpg`, { type: "image/jpeg" }));
+          const caption = (photo.caption || "").trim() ? formatCaptionOutput(photo.caption) : "";
+          if (caption) form.append("note", caption);
+          // 物件情報管理システムから読み込んだ写真なら、元の写真と置き換える
+          const sourceId = propertySourceIdByImportName.get(photo.importName);
+          if (sourceId) form.append("replaces", sourceId);
+
+          const response = await fetch(propertyUploadUrl, { method: "POST", body: form });
+          const data = await response.json().catch(() => null);
+          if (!response.ok || !data || !data.ok) {
+            const message = (data && data.error) || `送信に失敗しました（${response.status}）`;
+            // 受付の期限切れなどは、残りを送っても同じ結果になるので打ち切る
+            if (response.status === 401 || response.status === 403 || response.status === 409) {
+              failed += photos.length - i;
+              firstError = firstError || message;
+              break;
+            }
+            throw new Error(message);
+          }
+          // もう一度送ったときも同じ写真を置き換えられるよう、保存先のファイルを覚え直す
+          if (data.fileId && photo.importName) propertySourceIdByImportName.set(photo.importName, data.fileId);
+          photo.sentToProperty = sourceId ? "replaced" : "sent";
+          sent += 1;
+        } catch (err) {
+          console.warn(err);
+          failed += 1;
+          firstError = firstError || (err && err.message) || "送信に失敗しました";
+        }
+        if (i % 2 === 1) await yieldToUi();
+      }
+
+      renderGallery();
+      updatePropertyLinkStatus();
+      if (failed > 0) {
+        const message = `${sent}枚を送りました（${failed}枚は失敗: ${firstError}）`;
+        fileHint.textContent = message;
+        showToast(message, { error: true });
+      } else {
+        notifySuccess("send", `${sent}枚を物件情報管理システムへ送りました。広告シートに戻ると表示されます`, { count: sent });
+      }
+    } finally {
+      setImportLoading(false);
+      saveBtn.disabled = false;
+      downloadBtn.disabled = false;
+      updateBatchButtons();
+    }
+  }
+
+  /** 物件情報を住所欄・物件種別・見出しへ反映する。住所は丁目まで（番地は説明文に不要なため入れない） */
+  function applyPropertyLinkFromUrl() {
+    const link = readPropertyLinkFromUrl();
+    if (!link) return;
+    if (link.address && propertyAddress) {
+      const town = link.address.replace(/^北海道/, "");
+      const upToChome = town.match(/^.*?丁目/);
+      propertyAddress.value = upToChome ? upToChome[0] : town;
+      savePropertyAddress();
+    }
+    const typeMap = { 住宅: "house", 土地: "land", MS: "mansion" };
+    if (propertyType && typeMap[link.type]) {
+      propertyType.value = typeMap[link.type];
+      propertyType.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    const banner = document.getElementById("propertyLinkBanner");
+    const nameEl = document.getElementById("propertyLinkName");
+    if (banner && nameEl) {
+      nameEl.textContent = link.name || link.address;
+      banner.hidden = false;
+    }
+    // 送り先があれば「物件情報管理システムへ送る」を使えるようにする
+    propertyUploadUrl = link.uploadUrl;
+    removeUploadFromAddressBar();
+    if (propertyUploadUrl) {
+      const hint = document.getElementById("propertyLinkHint");
+      if (hint) {
+        hint.textContent =
+          "物件情報管理システムから開きました。仕上げたら「物件へ送る」を押すと、広告シートの「物件写真」の枠に入ります。送る写真は長辺 2400px（チラシ・他サイト用）、IRI 用のサイズはダウンロードで作れます。";
+      }
+      if (sendToPropertyBtn) {
+        sendToPropertyBtn.addEventListener("click", () => {
+          sendAllToPropertySystem();
+        });
+      }
+      // 広告シートの「物件写真」の枠に写真があれば、読み込むボタンを出す
+      fetchPropertyPhotoSources().then((sources) => {
+        const loadBtn = document.getElementById("loadPropertyPhotosBtn");
+        if (!loadBtn || !sources.length) return;
+        loadBtn.textContent = `物件の写真を読み込む（${sources.length}枚）`;
+        loadBtn.title = "広告シートの「物件写真」の枠に入っている写真を読み込みます。編集して「物件へ送る」を押すと、元の写真と置き換わります";
+        loadBtn.hidden = false;
+        loadBtn.addEventListener("click", () => {
+          loadPropertyPhotos(sources);
+        });
+      });
+    }
+    updateBatchButtons();
+  }
+
+  /** 物件の帯に、読み込んだ枚数と送った枚数を出す */
+  function updatePropertyLinkStatus() {
+    const el = document.getElementById("propertyLinkStatus");
+    if (!el || !propertyUploadUrl) return;
+    const loaded = photos.filter((p) => p.fromProperty).length;
+    const sent = photos.filter((p) => p.sentToProperty).length;
+    const parts = [];
+    if (loaded) parts.push(`物件から読み込んだ写真 ${loaded}枚`);
+    if (sent) parts.push(`送信済み ${sent}枚`);
+    if (photos.length - sent > 0 && (loaded || sent)) parts.push(`未送信 ${photos.length - sent}枚`);
+    el.textContent = parts.join(" ／ ");
+    el.hidden = parts.length === 0;
   }
 
   function savePropertyAddress() {
@@ -2336,6 +2628,17 @@ ${keywordsLine}
       const h = photo.baseImageData?.height || photo.sourceImage.naturalHeight;
       size.textContent = `${index + 1}. ${w} × ${h}`;
       meta.append(name, size);
+      // 物件情報管理システムとのやり取りの状態（読み込んだ写真か、送信済みか）
+      if (photo.fromProperty || photo.sentToProperty) {
+        const badge = document.createElement("span");
+        badge.className = `gallery-badge${photo.sentToProperty ? " is-sent" : ""}`;
+        badge.textContent = photo.sentToProperty === "replaced"
+          ? "送信済み（元の写真と置き換え）"
+          : photo.sentToProperty === "sent"
+            ? "送信済み"
+            : "物件から読み込み";
+        meta.append(badge);
+      }
       if (photo.caption) {
         const cap = document.createElement("span");
         cap.className = "gallery-caption-preview";
@@ -2662,6 +2965,10 @@ ${keywordsLine}
             id: `photo-${photoSeq}-${Date.now()}`,
             name: file.name,
             importName: file.name,
+            /** 物件情報管理システムへ送った状態（"sent" / "replaced"）。未送信は null */
+            sentToProperty: null,
+            /** 物件情報管理システムの広告シートから読み込んだ写真なら true */
+            fromProperty: false,
             sourceImage: img,
             thumbUrl: makeThumbUrl(img),
             baseImageData: null,
@@ -4271,9 +4578,11 @@ ${keywordsLine}
     return !needsHeavyLitProcessing(contrastVal, skyOpts, photo);
   }
 
-  async function buildWatermarkOnlyExportCanvas(photo, { watermark = true } = {}) {
+  async function buildWatermarkOnlyExportCanvas(photo, { watermark = true, targetSize = null } = {}) {
     const img = photo.sourceImage;
-    const { w, h, fitMode } = resolveTargetSize(img.naturalWidth, img.naturalHeight);
+    const { w, h, fitMode } = targetSize
+      ? targetSize(img.naturalWidth, img.naturalHeight)
+      : resolveTargetSize(img.naturalWidth, img.naturalHeight);
     const { bright } = getPhotoAdjustments(photo);
     await yieldToUi();
     const temp = canvasFromSourceImage(photo, w, h, fitMode);
@@ -4311,16 +4620,20 @@ ${keywordsLine}
     return scaleCanvasToExport(cur, targetW, targetH, fitMode);
   }
 
-  async function buildExportCanvas(photo, { watermark = true } = {}) {
+  /**
+   * 書き出し用のキャンバスを作る。
+   * targetSize を渡すと、IRI 登録サイズの代わりにその大きさ（(srcW, srcH) => {w, h, fitMode}）で作る。
+   */
+  async function buildExportCanvas(photo, { watermark = true, targetSize = null } = {}) {
     if (canUseWatermarkOnlyExport(photo)) {
-      return buildWatermarkOnlyExportCanvas(photo, { watermark });
+      return buildWatermarkOnlyExportCanvas(photo, { watermark, targetSize });
     }
 
     const data = photo.id === activePhotoId && baseImageData ? baseImageData : photo.baseImageData;
     if (!data) return null;
 
     const { bright, contrastVal, skyOpts } = getPhotoAdjustments(photo);
-    const { w, h, fitMode } = resolveTargetSize(data.width, data.height);
+    const { w, h, fitMode } = targetSize ? targetSize(data.width, data.height) : resolveTargetSize(data.width, data.height);
 
     await yieldToUi();
 
@@ -6195,6 +6508,10 @@ ${keywordsLine}
     syncCaptionField();
     showToast(`物件種別: ${getPropertyTypeConfig().label}`);
   });
+
+  // 物件情報管理システム（広告シートの「写真を編集する」）から開かれたときは、URL の物件情報を反映する。
+  // 保存済みの住所・物件種別の復元と、物件種別の変更処理の登録が済んでから行う
+  applyPropertyLinkFromUrl();
 
   generateCaptionBtn.addEventListener("click", () => {
     generateActiveCaption();
