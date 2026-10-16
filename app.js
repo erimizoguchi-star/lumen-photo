@@ -3060,8 +3060,32 @@ ${keywordsLine}
     if (streetViewStatus) streetViewStatus.textContent = message || "";
   }
 
-  function getMapsApiKey() {
+  let sharedMapsKey = "";
+
+  function getPersonalMapsApiKey() {
     return (streetViewApiKey?.value || localStorage.getItem(MAPS_KEY_STORAGE) || "").trim();
+  }
+
+  function getMapsApiKey() {
+    return getPersonalMapsApiKey() || sharedMapsKey;
+  }
+
+  function updateSharedMapsHint() {
+    if (!streetViewApiKey) return;
+    streetViewApiKey.placeholder = sharedMapsKey
+      ? "社内サーバーのキーを使用中（個人キーは不要）"
+      : "Maps / Places / Geocoding / Street View Static";
+  }
+
+  async function refreshSharedMapsKey() {
+    try {
+      const res = await fetch("/api/maps-config", { cache: "no-store" });
+      const data = res.ok ? await res.json().catch(() => ({})) : {};
+      sharedMapsKey = typeof data.key === "string" ? data.key.trim() : "";
+    } catch (_) {
+      sharedMapsKey = "";
+    }
+    updateSharedMapsHint();
   }
 
   function saveMapsApiKey() {
@@ -3196,6 +3220,7 @@ ${keywordsLine}
   }
 
   async function openStreetViewAtAddress() {
+    if (!getMapsApiKey()) await refreshSharedMapsKey();
     const key = getMapsApiKey();
     if (!key) {
       setStreetViewStatus("Googleマップ APIキーを下に入れてから表示してください。");
@@ -6451,6 +6476,7 @@ ${keywordsLine}
     updateSharedGeminiHint();
   });
   refreshSharedGeminiStatus();
+  refreshSharedMapsKey();
 
   verifyApiKeyBtn.addEventListener("click", () => {
     verifyGeminiApiKey();
