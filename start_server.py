@@ -3,9 +3,12 @@
 Lumen static file server (ASCII filename for Windows .bat compatibility).
 Serves this folder on 0.0.0.0:8510 for the office PC + Cloudflare Tunnel.
 Forwards Gemini calls with GEMINI_API_KEY from .env (key never sent to browsers).
+Hands GOOGLE_MAPS_API_KEY from .env to browsers that come through the Cloudflare
+Tunnel (loopback only), because the Maps JavaScript API needs the key in the page.
 """
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import re
@@ -59,6 +62,13 @@ def read_gemini_key() -> str:
     return (os.environ.get("GEMINI_API_KEY") or "").strip()
 
 
+def read_maps_key() -> str:
+    file_key = (read_env_file(PROJECT_DIR / ".env").get("GOOGLE_MAPS_API_KEY") or "").strip()
+    if file_key:
+        return file_key
+    return (os.environ.get("GOOGLE_MAPS_API_KEY") or "").strip()
+
+
 class LumenHandler(SimpleHTTPRequestHandler):
     def log_message(self, format, *args):
         sys.stdout.write("%s - %s\n" % (self.address_string(), format % args))
@@ -71,6 +81,17 @@ class LumenHandler(SimpleHTTPRequestHandler):
         if lowered == "/.env" or lowered.startswith("/.env.") or lowered.startswith("/.env/"):
             return True
         return any(lowered == prefix or lowered.startswith(prefix + "/") for prefix in BLOCKED_PREFIXES)
+
+    def _is_loopback_client(self) -> bool:
+        # cloudflared runs on this PC, so requests that passed Cloudflare Access
+        # arrive from 127.0.0.1. LAN clients (192.168.x.x) skip Access.
+        try:
+            addr = ipaddress.ip_address(self.client_address[0])
+        except ValueError:
+            return False
+        if getattr(addr, "ipv4_mapped", None):
+            addr = addr.ipv4_mapped
+        return addr.is_loopback
 
     def _send_json(self, status: int, payload: dict) -> None:
         raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -151,6 +172,10 @@ class LumenHandler(SimpleHTTPRequestHandler):
         if self._path_only() == "/api/gemini-status":
             self._send_json(200, {"configured": bool(read_gemini_key())})
             return
+        if self._path_only() == "/api/maps-config":
+            key = read_maps_key() if self._is_loopback_client() else ""
+            self._send_json(200, {"configured": bool(key), "key": key})
+            return
         if self._gemini_api_path() is not None:
             self._proxy_gemini("GET")
             return
@@ -201,6 +226,7 @@ def main() -> None:
 
     local_ip = get_local_ip()
     gemini_ready = bool(read_gemini_key())
+    maps_ready = bool(read_maps_key())
     print("=" * 60, flush=True)
     print("  Lumen (static server)", flush=True)
     print("=" * 60, flush=True)
@@ -209,6 +235,7 @@ def main() -> None:
     print(f"  LAN:     http://{local_ip}:{PORT}/", flush=True)
     print("  Office:  https://lumen.n-kyouei-system.com", flush=True)
     print(f"  Gemini:  {'共通キーあり' if gemini_ready else '共通キーなし（.env の GEMINI_API_KEY）'}", flush=True)
+    print(f"  Maps:    {'共通キーあり（Cloudflare 経由のみ配布）' if maps_ready else '共通キーなし（.env の GOOGLE_MAPS_API_KEY）'}", flush=True)
     print("  (Ctrl+C to stop)", flush=True)
     print(flush=True)
 

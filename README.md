@@ -51,6 +51,16 @@ macOS では `開く.command` をダブルクリックでも起動できます�
 
 利用上限（無料枠）に達した場合は、しばらく待ってから再試行してください。
 
+## Google マップ（ストリートビュー取り込み）
+
+社内公開 URL では、サーバー PC の `.env` に `GOOGLE_MAPS_API_KEY` があれば社員はキー入力なしで使えます。キー欄に「社内サーバーのキーを使用中」と出ます。画面にキーを入れた人は、そのキーが優先されます（そのブラウザだけ）。
+
+- Maps JavaScript API の仕様上、キーは画面に渡ります。渡すのは **Cloudflare 経由（Google ログイン済み）の画面だけ**です。サーバーは同じ PC で動く cloudflared からの要求（127.0.0.1）にだけキーを返し、社内 LAN 直の `http://192.168.0.39:8510` には返しません
+- Google Cloud でキーに次を設定します
+  - API: Maps JavaScript API、Places API、Geocoding API、Street View Static API
+  - ウェブサイトの制限: `https://lumen.n-kyouei-system.com/*`（Mac で使うなら `http://127.0.0.1:5173/*` も）
+- 起動ログに `Maps: 共通キーあり` と出れば設定できています
+
 ## ファイル
 
 | ファイル | 役割 |
@@ -80,7 +90,7 @@ start_lumen.bat
 
 更新は Mac で push → サーバー PC で pull → `start_lumen.bat` を再実行。
 
-初回のみ、サーバー PC で `.env.example` を `.env` にコピーし `GEMINI_API_KEY` を入れてください（以降の pull では `.env` はそのまま残ります）。起動ログに `Gemini: 共通キーあり` と出れば設定できています。
+初回のみ、サーバー PC で `.env.example` を `.env` にコピーし `GEMINI_API_KEY` と `GOOGLE_MAPS_API_KEY` を入れてください（以降の pull では `.env` はそのまま残ります）。起動ログに `Gemini: 共通キーあり` / `Maps: 共通キーあり` と出れば設定できています。
 
 フォルダ保存は HTTPS が必要なため、社員は社内 LAN の `http://192.168.0.39:8510` ではなく **https://lumen.n-kyouei-system.com** を使ってください。
 
