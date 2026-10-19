@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const APP_VERSION = "53";
+  const APP_VERSION = "57";
 
   const fileInput = document.getElementById("fileInput");
   const fileHint = document.getElementById("fileHint");
@@ -1156,6 +1156,69 @@
       .join("");
   }
 
+  function captionScriptKind(ch) {
+    if (!ch) return "";
+    if (/[\u30a0-\u30ffー]/.test(ch)) return "kata";
+    if (/[\u4e00-\u9fff々]/.test(ch)) return "han";
+    if (/[\u3040-\u309f]/.test(ch)) return "hira";
+    return "other";
+  }
+
+  function stripDanglingCaptionEnding(text, minKeep) {
+    let body = String(text || "").replace(/[、\s]+$/u, "");
+    const dangling = /(?:から|まで|より|ので|が|を|に|で|と|へ|の|も|は|や|て|ず|な|ば)$/;
+    if (charLen(body) > minKeep && dangling.test(body)) {
+      body = body.replace(dangling, "").replace(/[、\s]+$/u, "");
+    }
+    return body.trim();
+  }
+
+  function fitCaptionBody(text) {
+    const max = getCaptionBodyMax();
+    const chars = Array.from(String(text || "").trim());
+    const minKeep = Math.max(8, Math.floor(max * 0.4));
+    if (!chars.length) return "";
+    if (chars.length < max) return chars.join("");
+    if (chars.length === max) {
+      const trimmed = stripDanglingCaptionEnding(chars.join(""), minKeep);
+      return charLen(trimmed) >= minKeep ? trimmed : chars.join("");
+    }
+    const head = chars.slice(0, max).join("");
+    let best = -1;
+    for (let i = minKeep; i < head.length; i += 1) {
+      if ("。！？".includes(head[i])) best = i + 1;
+      else if (head[i] === "、" || head[i] === " ") best = i;
+    }
+    ["から", "まで", "より", "ので", "が", "を", "に", "で", "と", "へ", "の", "も", "は", "や"].forEach((particle) => {
+      let from = head.length;
+      while (from > minKeep) {
+        const idx = head.lastIndexOf(particle, from - 1);
+        if (idx < minKeep) break;
+        if (idx + particle.length < head.length && idx > best) best = idx;
+        from = idx;
+      }
+    });
+    let body = best >= minKeep ? head.slice(0, best).trim() : head;
+    if (best < minKeep) {
+      const nextKind = captionScriptKind(chars[max]);
+      const endKind = captionScriptKind(body[body.length - 1]);
+      const partial = endKind && (endKind === nextKind || (endKind === "han" && nextKind === "hira"));
+      if (partial) {
+        const tail = body.match(/([\u30a0-\u30ffー]+|[\u4e00-\u9fff々]+|[\u3040-\u309f]+)$/);
+        if (tail && charLen(body.slice(0, body.length - tail[1].length)) >= minKeep) {
+          body = body.slice(0, body.length - tail[1].length).trim();
+        }
+      }
+    }
+    for (let i = 0; i < 3; i += 1) {
+      const next = stripDanglingCaptionEnding(body, minKeep);
+      if (next === body) break;
+      body = next;
+    }
+    if (charLen(body) < minKeep) body = head;
+    return clampCaptionBody(body);
+  }
+
   function clampCaption(text) {
     return clampCaptionBody(text);
   }
@@ -1200,7 +1263,7 @@
         : `本文のみ合計${CAPTION_MAX_LEN}文字以内です（《杏栄》は付けません）`;
     }
     if (captionInput?.value) {
-      captionInput.value = clampCaptionBody(stripCaptionPrefix(captionInput.value));
+      captionInput.value = fitCaptionBody(stripCaptionPrefix(captionInput.value));
       persistCaptionFromUi();
     }
     updateCaptionCount();
@@ -2020,13 +2083,15 @@ ${visualHint}`;
     const lengthBlock = isCaptionPrefixEnabled()
       ? `文字数（最重要）:
 - 最終表示では先頭に《杏栄》（${CAPTION_PREFIX_LEN}文字）が付く
-- caption 本文は《杏栄》なしで、ちょうど ${bodyMax} 文字を目指す（最低でも ${minAim} 文字以上）
-- 短い名詞句だけで終わらせず、光・広がり・質感・使い勝手など写真から受ける印象を足して上限近くまで使う
-- ${bodyMax} 文字を超えない`
+- caption 本文は《杏栄》なしで ${bodyMax} 文字以内。超えてはいけない
+- 語・助詞・文の途中で終わらない。収まりきらない語は書かず、その手前の完結した表現で終える
+- 末尾は体言止めか、言い切った短い表現にする（「が」「を」「な」「の」などで止めない）
+- 短すぎないよう ${minAim} 文字前後まで使ってよいが、途中で切るくらいなら短く終える`
       : `文字数（最重要）:
-- caption 本文はちょうど ${bodyMax} 文字を目指す（最低でも ${minAim} 文字以上）
-- 短い名詞句だけで終わらせず、光・広がり・質感・使い勝手など写真から受ける印象を足して上限近くまで使う
-- ${bodyMax} 文字を超えない`;
+- caption 本文は ${bodyMax} 文字以内。超えてはいけない
+- 語・助詞・文の途中で終わらない。収まりきらない語は書かず、その手前の完結した表現で終える
+- 末尾は体言止めか、言い切った短い表現にする（「が」「を」「な」「の」などで止めない）
+- 短すぎないよう ${minAim} 文字前後まで使ってよいが、途中で切るくらいなら短く終える`;
 
     return `添付写真を注意深く観察し、不動産登録用の日本語キャプションを作成してください。
 
@@ -2052,11 +2117,11 @@ ${lengthBlock}
 1. 写真の事実と印象は頭の中で確認し、出力には書かない
 2. キーワードがある場合は、写真と矛盾しないものだけを caption に自然に入れる
 3. 写っていない設備・特徴は caption に入れない
-4. caption を先に完成させ、可能な限り ${bodyMax} 文字に近づける
+4. caption は ${bodyMax} 文字以内で、語の途中で切らずに最後まで書き切る
 
 出力ルール:
 1. 出力は日本語のJSONオブジェクトのみ。英語の説明・前置き・コードフェンスは禁止
-2. 次の形だけを返す。caption を最初のキーにする（途中で切れても本文が残るように）
+2. 次の形だけを返す。caption を最初のキーにし、本文は途中で切らずに完結させる
 {"caption":"本文のみ（《杏栄》なし）","charCount":本文の文字数}
 3. observation や category は出力しない
 4. caption は日本語のみ。《杏栄》は付けない。本文のみ ${bodyMax} 文字以内
@@ -2221,7 +2286,7 @@ ${lengthBlock}
       systemInstruction: {
         parts: [
           {
-            text: `あなたは不動産物件写真のキャプション作家です。必ず日本語のJSONだけを返します。キーは caption を最初にし、本文だけを入れます。observation は出力しません。文字のあいだに番号を入れません。写っていない設備は断定しません。文字数は本文${getCaptionBodyMax()}文字に近づけます。`,
+            text: `あなたは不動産物件写真のキャプション作家です。必ず日本語のJSONだけを返します。キーは caption を最初にし、本文だけを入れます。observation は出力しません。文字のあいだに番号を入れません。写っていない設備は断定しません。本文は${getCaptionBodyMax()}文字以内で、語や文の途中では終わらせません。`,
           },
         ],
       },
@@ -2335,20 +2400,21 @@ ${lengthBlock}
 現在のcaption: ${draft}
 指定カテゴリ: ${hintCategory || "（なし）"}
 ${keywordsLine}
-目標文字数: 本文ちょうど ${bodyMax} 文字（最低でも ${Math.floor(bodyMax * 0.9)} 文字）
+目標: 本文は ${bodyMax} 文字以内。語や文の途中で切らず、上限を超えるなら手前で終える。
 
 ルール:
 - HOUSEDOなどの定型文に寄せない
 - 写真から受ける印象（光・広がり・清潔感・落ち着きなど）を足す
 - 写っていない設備は追加しない
 - 《杏栄》は付けない
+- 末尾は体言止めか、言い切った短い表現にする
 - JSONのみ返す: {"caption":"本文","charCount":文字数}`;
 
     const body = {
       systemInstruction: {
         parts: [
           {
-            text: `短いキャプションを、写真の印象に基づいて自然に伸ばす専門家です。目標は本文${bodyMax}文字です。虚偽の設備は追加しません。`,
+            text: `短いキャプションを、写真の印象に基づいて自然に伸ばす専門家です。本文は${bodyMax}文字以内で、語の途中では終わらせません。虚偽の設備は追加しません。`,
           },
         ],
       },
@@ -2383,7 +2449,7 @@ ${keywordsLine}
         const text = geminiResponseText(data);
         if (!text) continue;
         const parsed = parseCaptionResponse(text);
-        const expanded = clampCaptionBody(stripCaptionPrefix(parsed.caption));
+        const expanded = fitCaptionBody(stripCaptionPrefix(parsed.caption));
         if (charLen(expanded) > charLen(draft)) return expanded;
       } catch (_) {
         /* try next model */
@@ -2419,7 +2485,7 @@ ${keywordsLine}
     }
 
     const bodyMax = getCaptionBodyMax();
-    let caption = clampCaptionBody(stripCaptionPrefix(result.caption));
+    let caption = fitCaptionBody(stripCaptionPrefix(result.caption));
     if (!isUsableCaptionText(caption)) {
       caption = pickFallbackCaption(category || result.category);
       usedFallback = true;
@@ -2438,7 +2504,7 @@ ${keywordsLine}
 
     // ユーザー指定カテゴリを優先して固定
     photo.captionCategory = category || result.category;
-    photo.caption = clampCaptionBody(caption);
+    photo.caption = fitCaptionBody(caption);
 
     if (syncUi && photo.id === activePhotoId) {
       setUiCaptionCategory(photo.captionCategory);
@@ -2992,6 +3058,7 @@ ${keywordsLine}
             captionKeywords: "",
             caption: "",
             pixelEdited: false,
+            exportAsThumb: false,
           };
           photos.push(photo);
           added.push(photo);
@@ -4841,6 +4908,7 @@ ${keywordsLine}
       }
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(lit, 0, 0);
+      drawRotateGuides();
       drawCropOverlay();
       return;
     }
@@ -4860,6 +4928,36 @@ ${keywordsLine}
     ctx.translate(bbW / 2, bbH / 2);
     ctx.rotate(rad);
     ctx.drawImage(lit, -lit.width / 2, -lit.height / 2);
+    ctx.restore();
+    drawRotateGuides();
+  }
+
+  function drawRotateGuides() {
+    if (activeTool !== "rotate" || !canvas.width || !canvas.height) return;
+    const { scale } = getDisplaySize();
+    const px = (css) => Math.max(1, css / Math.max(scale, 0.05));
+    const w = canvas.width;
+    const h = canvas.height;
+    const lines = [
+      [w / 3, 0, w / 3, h, false],
+      [(2 * w) / 3, 0, (2 * w) / 3, h, false],
+      [0, h / 3, w, h / 3, false],
+      [0, (2 * h) / 3, w, (2 * h) / 3, false],
+      [w / 2, 0, w / 2, h, true],
+      [0, h / 2, w, h / 2, true],
+    ];
+    ctx.save();
+    lines.forEach(([x1, y1, x2, y2, strong]) => {
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.55)";
+      ctx.lineWidth = px(strong ? 3 : 2);
+      ctx.stroke();
+      ctx.strokeStyle = strong ? "rgba(255, 255, 255, 0.95)" : "rgba(255, 255, 255, 0.62)";
+      ctx.lineWidth = px(strong ? 1.4 : 1);
+      ctx.stroke();
+    });
     ctx.restore();
   }
 
@@ -6807,7 +6905,8 @@ ${keywordsLine}
       const preset = EXPORT_PRESETS[activeExportPreset];
       if (preset) {
         const limitKb = Math.round(preset.maxBytes / 1024);
-        exportPresetHint.textContent = `IRI公式ガイドライン準拠: ${preset.hint}（保存時は画質を上げ、${limitKb}KB近くまで使います）`;
+        const thumbName = activeExportPreset === "iri-thumb" ? "保存名の末尾に _s が付きます。" : "";
+        exportPresetHint.textContent = `IRI公式ガイドライン準拠: ${preset.hint}（保存時は画質を上げ、${limitKb}KB近くまで使います）${thumbName}`;
       } else {
         exportPresetHint.textContent = "幅・高さを手動で指定しています。";
       }
@@ -6937,6 +7036,7 @@ ${keywordsLine}
         try {
           const src = photoSourceCanvas(photo);
           const { w, h, fitMode } = resolveTargetSize(src.width, src.height);
+          photo.exportAsThumb = activeExportPreset === "iri-thumb";
 
           if (w === src.width && h === src.height) {
             if (!photo.baseImageData) {
@@ -6966,9 +7066,10 @@ ${keywordsLine}
           : changed > 0
             ? `${changed}枚のサイズを変更しました`
             : "サイズ変更の必要はありませんでした";
+      const thumbNote = activeExportPreset === "iri-thumb" ? "。保存名の末尾に _s を付けます" : "";
 
-      showToast(resizeMsg);
-      fileHint.textContent = resizeMsg;
+      showToast(`${resizeMsg}${thumbNote}`);
+      fileHint.textContent = `${resizeMsg}${thumbNote}`;
       emitLumen("resize", { ok: failed === 0, message: resizeMsg, changed, failed, batch: true });
 
       if (andSave) {
@@ -6988,11 +7089,15 @@ ${keywordsLine}
       showToast("写真を選択してください", { error: true });
       return false;
     }
+    const photo = getActivePhoto();
+    if (photo) photo.exportAsThumb = activeExportPreset === "iri-thumb";
     const { w, h, fitMode } = resolveTargetSize(baseImageData.width, baseImageData.height);
 
     if (w === baseImageData.width && h === baseImageData.height) {
-      showToast("サイズは変更されていません");
-      fileHint.textContent = "サイズは変更されていません";
+      const savedName = photo ? getExportFileName(photo) : "";
+      const note = photo?.exportAsThumb && savedName ? `（保存名: ${savedName}）` : "";
+      showToast(`サイズは変更されていません${note}`);
+      fileHint.textContent = `サイズは変更されていません${note}`;
       return false;
     }
 
@@ -7009,7 +7114,9 @@ ${keywordsLine}
     try {
       const resized = await resizeCanvasToTarget(temp, w, h, fitMode);
       commitBaseFromCanvas(resized);
-      notifySuccess("resize", `サイズを変更しました（${resized.width} × ${resized.height}）`, {
+      const savedName = photo ? getExportFileName(photo) : "";
+      const note = photo?.exportAsThumb && savedName ? ` / 保存名 ${savedName}` : "";
+      notifySuccess("resize", `サイズを変更しました（${resized.width} × ${resized.height}）${note}`, {
         width: resized.width,
         height: resized.height,
       });
@@ -8033,8 +8140,10 @@ ${keywordsLine}
   function getExportFileName(photo) {
     if (!photo) return "";
     const { base } = splitFileName(photo.name);
-    const safe = sanitizeBaseName(base);
-    return safe ? `${safe}.jpg` : "";
+    let safe = sanitizeBaseName(base);
+    if (!safe) return "";
+    if (photo.exportAsThumb && !safe.endsWith("_s")) safe = `${safe}_s`;
+    return `${safe}.jpg`;
   }
 
   function getDuplicateExportNames(photoList) {
