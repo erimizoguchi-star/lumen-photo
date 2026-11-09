@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const APP_VERSION = "57";
+  const APP_VERSION = "58";
 
   const fileInput = document.getElementById("fileInput");
   const fileHint = document.getElementById("fileHint");
@@ -1419,14 +1419,31 @@
     return String(model || "").startsWith("gemini-3");
   }
 
-  function withGeminiGenerationConfig(config, model) {
+  function withGeminiGenerationConfig(config, model, thinkingLevel = "low") {
     if (!isGemini3Model(model)) return config;
     return {
       ...config,
-      maxOutputTokens: Math.max(Number(config.maxOutputTokens) || 0, 1024),
-      thinkingConfig: { thinkingLevel: "low" },
+      // 考える分のトークンも上限に含まれるので、深く考えるときは多めに取る
+      maxOutputTokens: Math.max(Number(config.maxOutputTokens) || 0, thinkingLevel === "low" ? 1024 : 2048),
+      thinkingConfig: { thinkingLevel },
     };
   }
+
+  /** キャプション本生成で試す「考える深さ」。medium が使えないモデルでは low に戻す */
+  function captionThinkingLevels(model) {
+    return isGemini3Model(model) ? ["medium", "low"] : ["low"];
+  }
+
+  /**
+   * 語り口の参考例（内容はまねさせない）。社員が良いと思うキャプションに差し替えてよい。
+   * 《杏栄》なしの本文で、設定文字数（32〜36文字）以内に収めること。
+   */
+  const CAPTION_STYLE_EXAMPLES = [
+    "南からの光がたっぷり入る、開放感あるリビング",
+    "白を基調にした清潔感のある、使いやすい対面キッチン",
+    "緑に囲まれた落ち着きある住宅街に建つ、整った外観",
+    "大きな窓から街並みを望む、明るく風通しの良い洋室",
+  ];
 
   function geminiResponseText(data) {
     const parts = data?.candidates?.[0]?.content?.parts || [];
@@ -2080,18 +2097,20 @@ ${visualHint}`;
       ? `写真ファイル名（参考・断定しない）: ${photoName}`
       : "";
 
+    const lengthRules = `- caption 本文は《杏栄》なしで ${minAim}〜${bodyMax} 文字を目指す。${bodyMax} 文字を超えてはいけない
+- 短い名詞句だけで終わらせず、光・広がり・質感・使い勝手など写真から受ける印象を足して、上限近くまで使う
+- 語・助詞・文の途中で終わらない。末尾は体言止めか、言い切った短い表現にする（「が」「を」「な」「の」などで止めない）
+- 文字数は、語を途中で切らずに、言い換え・語順の入れ替え・印象語の追加や削除で合わせる`;
+
     const lengthBlock = isCaptionPrefixEnabled()
       ? `文字数（最重要）:
 - 最終表示では先頭に《杏栄》（${CAPTION_PREFIX_LEN}文字）が付く
-- caption 本文は《杏栄》なしで ${bodyMax} 文字以内。超えてはいけない
-- 語・助詞・文の途中で終わらない。収まりきらない語は書かず、その手前の完結した表現で終える
-- 末尾は体言止めか、言い切った短い表現にする（「が」「を」「な」「の」などで止めない）
-- 短すぎないよう ${minAim} 文字前後まで使ってよいが、途中で切るくらいなら短く終える`
+${lengthRules}`
       : `文字数（最重要）:
-- caption 本文は ${bodyMax} 文字以内。超えてはいけない
-- 語・助詞・文の途中で終わらない。収まりきらない語は書かず、その手前の完結した表現で終える
-- 末尾は体言止めか、言い切った短い表現にする（「が」「を」「な」「の」などで止めない）
-- 短すぎないよう ${minAim} 文字前後まで使ってよいが、途中で切るくらいなら短く終える`;
+${lengthRules}`;
+
+    const examplesBlock = `語り口の参考例（言葉の選び方・長さ・終わり方だけを参考にする。内容はまねせず、写真に写っていないものは書かない）:
+${CAPTION_STYLE_EXAMPLES.map((ex) => `- ${ex}`).join("\n")}`;
 
     return `添付写真を注意深く観察し、不動産登録用の日本語キャプションを作成してください。
 
@@ -2113,16 +2132,19 @@ ${keywordsBlock}
 
 ${lengthBlock}
 
+${examplesBlock}
+
 作業手順（必ず守る）:
 1. 写真の事実と印象は頭の中で確認し、出力には書かない
 2. キーワードがある場合は、写真と矛盾しないものだけを caption に自然に入れる
 3. 写っていない設備・特徴は caption に入れない
-4. caption は ${bodyMax} 文字以内で、語の途中で切らずに最後まで書き切る
+4. 言い回しや切り口（光・広がり・素材感・暮らしやすさなど）を変えた候補を3つ作り、どれも ${bodyMax} 文字以内で最後まで書き切る
+5. 3つのうち、写真に一番合い、上限近くまで書けているものを caption にする
 
 出力ルール:
 1. 出力は日本語のJSONオブジェクトのみ。英語の説明・前置き・コードフェンスは禁止
 2. 次の形だけを返す。caption を最初のキーにし、本文は途中で切らずに完結させる
-{"caption":"本文のみ（《杏栄》なし）","charCount":本文の文字数}
+{"caption":"一番良い候補の本文（《杏栄》なし）","candidates":["候補1","候補2","候補3"]}
 3. observation や category は出力しない
 4. caption は日本語のみ。《杏栄》は付けない。本文のみ ${bodyMax} 文字以内
 5. 【カテゴリ】や■は付けない
@@ -2131,7 +2153,7 @@ ${lengthBlock}
 8. 誇大表現・虚偽（正確な駅距離・面積・価格など）は禁止
 9. 定型の「おすすめポイント」「詳細はお問合せを」だけで埋めない
 10. 文字のあいだに (20) や 21) のような番号を絶対に入れない
-11. charCount は数字だけ。文字ごとの番号付けは禁止
+11. 文字ごとの番号付けは禁止
 12. 「Here is the JSON」など英語コメントは絶対に書かない`;
   }
 
@@ -2201,12 +2223,17 @@ ${lengthBlock}
     const raw = String(text || "").trim();
     let category = "";
     let caption = "";
+    // 文字数で選び直せるよう、切り詰める前の候補も残す
+    let rawCandidates = [];
 
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       try {
         const data = JSON.parse(jsonMatch[0]);
         category = String(data.category || "").trim();
+        rawCandidates = [data.caption, ...(Array.isArray(data.candidates) ? data.candidates : [])]
+          .map((value) => String(value || "").trim())
+          .filter(Boolean);
         caption = cleanCaptionCandidate(data.caption || "");
         if (!isUsableCaptionText(caption)) {
           caption = cleanCaptionCandidate(data.observation || "");
@@ -2244,7 +2271,26 @@ ${lengthBlock}
       const found = categories.find((c) => category.includes(c) || caption.includes(c) || raw.includes(c));
       category = found || "その他";
     }
-    return { category, caption: cleanCaptionCandidate(caption) };
+    return { category, caption: cleanCaptionCandidate(caption), rawCandidates };
+  }
+
+  /**
+   * 候補の中から、上限以内で最後まで書き切れている一番長いものを選ぶ。
+   * どれも収まらなければ、区切りで収めたうえで一番長いもの。
+   */
+  function pickBestCaption(result) {
+    const bodyMax = getCaptionBodyMax();
+    const pool = [...(result?.rawCandidates || []), result?.caption || ""]
+      .map((value) => stripCaptionPrefix(String(value || "")).trim())
+      .filter((value) => value && !looksLikeMachineDump(value) && isUsableCaptionText(value));
+    if (!pool.length) return result?.caption || "";
+    const complete = pool.filter(
+      (value) => charLen(value) <= bodyMax && stripDanglingCaptionEnding(value, 0) === value.replace(/[、\s]+$/u, "")
+    );
+    const ranked = (complete.length ? complete : pool.map((value) => fitCaptionBody(value)))
+      .filter((value) => isUsableCaptionText(value))
+      .sort((a, b) => charLen(b) - charLen(a));
+    return ranked[0] || result?.caption || "";
   }
 
   function explainGeminiError(err, data) {
@@ -2286,7 +2332,7 @@ ${lengthBlock}
       systemInstruction: {
         parts: [
           {
-            text: `あなたは不動産物件写真のキャプション作家です。必ず日本語のJSONだけを返します。キーは caption を最初にし、本文だけを入れます。observation は出力しません。文字のあいだに番号を入れません。写っていない設備は断定しません。本文は${getCaptionBodyMax()}文字以内で、語や文の途中では終わらせません。`,
+            text: `あなたは不動産物件写真のキャプション作家です。必ず日本語のJSONだけを返します。キーは caption を最初にし、候補3つを candidates に入れます。observation は出力しません。文字のあいだに番号を入れません。写っていない設備は断定しません。本文は${getCaptionBodyMax()}文字以内で上限近くまで使い、語や文の途中では終わらせません。`,
           },
         ],
       },
@@ -2300,84 +2346,90 @@ ${lengthBlock}
       ],
       generationConfig: {
         temperature: 0.45,
-        maxOutputTokens: 512,
+        maxOutputTokens: 768,
       },
     };
 
     let lastError = null;
     for (const model of GEMINI_MODELS) {
-      for (const useJson of [true, false]) {
-        let rateRetries = 0;
-        while (rateRetries < 2) {
-          try {
-            const body = {
-              ...baseBody,
-              generationConfig: withGeminiGenerationConfig(
-                useJson
-                  ? { ...baseBody.generationConfig, responseMimeType: "application/json" }
-                  : { ...baseBody.generationConfig },
-                model,
-              ),
-            };
-            const url = buildGeminiUrl(`v1beta/models/${model}:generateContent`);
-            const res = await fetch(url, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(body),
-            });
-            const data = await res.json().catch(() => ({}));
-            if (!res.ok) {
-              const msg = data?.error?.message || `HTTP ${res.status}`;
-              lastError = new Error(explainGeminiError(msg, data));
-              if (res.status === 429 || /RESOURCE_EXHAUSTED|quota|rate/i.test(msg)) {
-                rateRetries += 1;
-                if (rateRetries < 2) {
-                  setAiStatus(`利用上限のため待機中…（${rateRetries}/1）`);
-                  await sleep(20000);
-                  continue;
+      for (const thinkingLevel of captionThinkingLevels(model)) {
+        lastError = null;
+        for (const useJson of [true, false]) {
+          let rateRetries = 0;
+          while (rateRetries < 2) {
+            try {
+              const body = {
+                ...baseBody,
+                generationConfig: withGeminiGenerationConfig(
+                  useJson
+                    ? { ...baseBody.generationConfig, responseMimeType: "application/json" }
+                    : { ...baseBody.generationConfig },
+                  model,
+                  thinkingLevel,
+                ),
+              };
+              const url = buildGeminiUrl(`v1beta/models/${model}:generateContent`);
+              const res = await fetch(url, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+              });
+              const data = await res.json().catch(() => ({}));
+              if (!res.ok) {
+                const msg = data?.error?.message || `HTTP ${res.status}`;
+                lastError = new Error(explainGeminiError(msg, data));
+                if (res.status === 429 || /RESOURCE_EXHAUSTED|quota|rate/i.test(msg)) {
+                  rateRetries += 1;
+                  if (rateRetries < 2) {
+                    setAiStatus(`利用上限のため待機中…（${rateRetries}/1）`);
+                    await sleep(20000);
+                    continue;
+                  }
+                  throw lastError;
                 }
-                throw lastError;
+                if (res.status === 404 || /not found|not supported|NOT_FOUND/i.test(msg)) break;
+                if (/responseMimeType|Unknown name|invalid argument/i.test(msg) && useJson) {
+                  break; // JSON指定なしで再試行（外側ループ）
+                }
+                if (res.status === 401 || res.status === 403 || /API key|permission|referr/i.test(msg)) {
+                  throw lastError;
+                }
+                break;
               }
-              if (res.status === 404 || /not found|not supported|NOT_FOUND/i.test(msg)) break;
-              if (/responseMimeType|Unknown name|invalid argument/i.test(msg) && useJson) {
-                break; // JSON指定なしで再試行（外側ループ）
+
+              const blockReason = data?.promptFeedback?.blockReason;
+              if (blockReason) {
+                throw new Error(explainGeminiError(`blocked:${blockReason}`, data));
               }
-              if (res.status === 401 || res.status === 403 || /API key|permission|referr/i.test(msg)) {
+
+              const candidate = data?.candidates?.[0];
+              const finish = candidate?.finishReason || "";
+              if (/SAFETY|RECITATION|BLOCK/i.test(finish)) {
+                throw new Error(explainGeminiError(`SAFETY:${finish}`, data));
+              }
+
+              const text = geminiResponseText(data);
+              if (!text) {
+                lastError = new Error(explainGeminiError("AIから本文が返りませんでした", data));
+                break;
+              }
+              return parseCaptionResponse(text);
+            } catch (err) {
+              lastError = err instanceof Error ? err : new Error(explainGeminiError(err));
+              if (/APIキー|制限|利用上限|権限|ネットワーク|安全フィルター/i.test(lastError.message)) {
                 throw lastError;
               }
               break;
             }
-
-            const blockReason = data?.promptFeedback?.blockReason;
-            if (blockReason) {
-              throw new Error(explainGeminiError(`blocked:${blockReason}`, data));
-            }
-
-            const candidate = data?.candidates?.[0];
-            const finish = candidate?.finishReason || "";
-            if (/SAFETY|RECITATION|BLOCK/i.test(finish)) {
-              throw new Error(explainGeminiError(`SAFETY:${finish}`, data));
-            }
-
-            const text = geminiResponseText(data);
-            if (!text) {
-              lastError = new Error(explainGeminiError("AIから本文が返りませんでした", data));
-              break;
-            }
-            return parseCaptionResponse(text);
-          } catch (err) {
-            lastError = err instanceof Error ? err : new Error(explainGeminiError(err));
-            if (/APIキー|制限|利用上限|権限|ネットワーク|安全フィルター/i.test(lastError.message)) {
-              throw lastError;
-            }
-            break;
           }
+          // useJson true で JSON非対応なら false へ
+          if (lastError && /responseMimeType|Unknown name|invalid argument/i.test(lastError.message) && useJson) {
+            continue;
+          }
+          if (lastError && /利用上限/i.test(lastError.message)) throw lastError;
         }
-        // useJson true で JSON非対応なら false へ
-        if (lastError && /responseMimeType|Unknown name|invalid argument/i.test(lastError.message) && useJson) {
-          continue;
-        }
-        if (lastError && /利用上限/i.test(lastError.message)) throw lastError;
+        // 考える深さの指定が通らないモデルだけ、浅い設定でやり直す
+        if (!(lastError && /thinking/i.test(lastError.message))) break;
       }
     }
     throw lastError || new Error("生成に失敗しました");
@@ -2485,7 +2537,7 @@ ${keywordsLine}
     }
 
     const bodyMax = getCaptionBodyMax();
-    let caption = fitCaptionBody(stripCaptionPrefix(result.caption));
+    let caption = fitCaptionBody(stripCaptionPrefix(usedFallback ? result.caption : pickBestCaption(result)));
     if (!isUsableCaptionText(caption)) {
       caption = pickFallbackCaption(category || result.category);
       usedFallback = true;
@@ -2505,6 +2557,9 @@ ${keywordsLine}
     // ユーザー指定カテゴリを優先して固定
     photo.captionCategory = category || result.category;
     photo.caption = fitCaptionBody(caption);
+    // AI に失敗して定型文を入れた写真は、手で直すまで一覧に印を出す
+    if (usedFallback) photo.fallbackCaptionText = photo.caption;
+    else delete photo.fallbackCaptionText;
 
     if (syncUi && photo.id === activePhotoId) {
       setUiCaptionCategory(photo.captionCategory);
@@ -2590,6 +2645,7 @@ ${keywordsLine}
 
     let ok = 0;
     let failed = 0;
+    let templated = 0;
 
     try {
       for (let i = 0; i < photos.length; i += 1) {
@@ -2602,11 +2658,12 @@ ${keywordsLine}
         setAiStatus(`生成中… ${i + 1}/${photos.length}（${cat} / ${photo.name}）`);
         try {
           photo.captionCategory = cat;
-          await generateCaptionForPhoto(photo, {
+          const result = await generateCaptionForPhoto(photo, {
             syncUi: photo.id === activePhotoId,
             requireCategory: true,
           });
           ok += 1;
+          if (result.usedFallback) templated += 1;
         } catch (err) {
           console.warn(err);
           failed += 1;
@@ -2615,9 +2672,13 @@ ${keywordsLine}
       }
       renderGallery();
       syncCaptionField();
-      const msg =
-        failed > 0 ? `${ok}枚生成（${failed}枚失敗）` : `${ok}枚のキャプションを生成しました`;
-      setAiStatus(msg, failed > 0);
+      const notes = [];
+      if (failed > 0) notes.push(`${failed}枚失敗`);
+      if (templated > 0) notes.push(`${templated}枚はAIの応答が不安定なため定型文。一覧の「定型文」の印を確認してください`);
+      const msg = notes.length
+        ? `${ok}枚生成（${notes.join("。")}）`
+        : `${ok}枚のキャプションを生成しました`;
+      setAiStatus(msg, failed > 0 || templated > 0);
       showToast(msg);
     } finally {
       generateCaptionBtn.disabled = false;
@@ -2703,6 +2764,13 @@ ${keywordsLine}
           : photo.sentToProperty === "sent"
             ? "送信済み"
             : "物件から読み込み";
+        meta.append(badge);
+      }
+      if (photo.caption && photo.fallbackCaptionText === photo.caption) {
+        const badge = document.createElement("span");
+        badge.className = "gallery-badge is-fallback";
+        badge.textContent = "定型文（AI失敗）";
+        badge.title = "AIの応答が不安定だったため定型文を入れました。再生成するか手で直してください";
         meta.append(badge);
       }
       if (photo.caption) {
