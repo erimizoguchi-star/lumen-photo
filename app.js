@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const APP_VERSION = "58";
+  const APP_VERSION = "59";
 
   const fileInput = document.getElementById("fileInput");
   const fileHint = document.getElementById("fileHint");
@@ -46,6 +46,10 @@
   const gallery = document.getElementById("gallery");
   const galleryList = document.getElementById("galleryList");
   const galleryCount = document.getElementById("galleryCount");
+  const captionOverview = document.getElementById("captionOverview");
+  const captionOverviewGrid = document.getElementById("captionOverviewGrid");
+  const captionOverviewCount = document.getElementById("captionOverviewCount");
+  const nextMissingCaptionBtn = document.getElementById("nextMissingCaptionBtn");
   const clearAllBtn = document.getElementById("clearAllBtn");
   const clearListingInfoBtn = document.getElementById("clearListingInfoBtn");
   const nameField = document.getElementById("nameField");
@@ -474,8 +478,11 @@
       categories: [
         "外観",
         "間取り",
+        "LDK",
         "リビング",
-        "居間・リビング",
+        "リビング・ダイニング",
+        "キッチン・リビング",
+        "ダイニング・キッチン",
         "ダイニング",
         "キッチン",
         "洋室",
@@ -516,10 +523,26 @@
           "落ち着いたトーンで過ごしやすいリビング",
           "家具を置きやすいゆとりあるリビング",
         ],
-        "居間・リビング": [
-          "日当たりのよい明るい居間でくつろげる",
-          "やわらかい光が入る落ち着いた居間",
-          "家族が集まりやすい広がりのある居間",
+        LDK: [
+          "家族の気配を感じられる開放的なLDK",
+          "明るく見通しのよい広々としたLDK",
+          "キッチンからリビングまで見渡せるLDK",
+          "家具を置きやすいゆとりあるLDK空間",
+        ],
+        "リビング・ダイニング": [
+          "食事とくつろぎがつながる明るいリビングダイニング",
+          "窓からの光が心地よいリビングダイニング",
+          "家族が集まりやすい広がりのあるリビングダイニング",
+        ],
+        "キッチン・リビング": [
+          "料理をしながら会話が楽しめるキッチンとリビング",
+          "リビングを見渡せる使いやすいキッチン",
+          "明るく一体感のあるキッチンとリビング",
+        ],
+        "ダイニング・キッチン": [
+          "家事動線のよい使いやすいダイニングキッチン",
+          "明るく食事の支度がしやすいダイニングキッチン",
+          "収納も備えた清潔感あるダイニングキッチン",
         ],
         ダイニング: [
           "明るく食事が楽しめるダイニング空間",
@@ -626,8 +649,11 @@
       categories: [
         "外観",
         "間取り",
+        "LDK",
         "リビング",
-        "居間・リビング",
+        "リビング・ダイニング",
+        "キッチン・リビング",
+        "ダイニング・キッチン",
         "ダイニング",
         "キッチン",
         "洋室",
@@ -666,10 +692,26 @@
           "家族が集まりやすい明るいリビング",
           "窓辺が心地よい落ち着いたリビング",
         ],
-        "居間・リビング": [
-          "日当たりのよい明るい居間でくつろげる",
-          "やわらかい光が入る落ち着いた居間",
-          "家族が集まりやすい広がりのある居間",
+        LDK: [
+          "家族の気配を感じられる開放的なLDK",
+          "明るく見通しのよい広々としたLDK",
+          "キッチンからリビングまで見渡せるLDK",
+          "家具を置きやすいゆとりあるLDK空間",
+        ],
+        "リビング・ダイニング": [
+          "食事とくつろぎがつながる明るいリビングダイニング",
+          "窓からの光が心地よいリビングダイニング",
+          "家族が集まりやすい広がりのあるリビングダイニング",
+        ],
+        "キッチン・リビング": [
+          "料理をしながら会話が楽しめるキッチンとリビング",
+          "リビングを見渡せる使いやすいキッチン",
+          "明るく一体感のあるキッチンとリビング",
+        ],
+        "ダイニング・キッチン": [
+          "家事動線のよい使いやすいダイニングキッチン",
+          "明るく食事の支度がしやすいダイニングキッチン",
+          "収納も備えた清潔感あるダイニングキッチン",
         ],
         ダイニング: [
           "明るく食事が楽しめるダイニング空間",
@@ -855,8 +897,14 @@
 
   const CUSTOM_CATEGORY_VALUE = "__custom__";
 
+  /** 廃止したカテゴリ名 → 現在の名前（保存済みの写真を開いたとき用） */
+  const LEGACY_CATEGORY_ALIASES = {
+    "居間・リビング": "リビング",
+  };
+
   function normalizeCaptionCategory(value) {
-    return String(value || "").trim().replace(/\s+/g, " ").slice(0, 24);
+    const name = String(value || "").trim().replace(/\s+/g, " ").slice(0, 24);
+    return LEGACY_CATEGORY_ALIASES[name] || name;
   }
 
   function isCustomCategoryUi() {
@@ -1454,7 +1502,10 @@
     外観: "外壁材・色、階数、バルコニー、エントランス、駐車場、植栽、周辺建物",
     間取り: "間取り図の部屋配置、水回り位置、収納、バルコニー位置（面積数値は書かない）",
     リビング: "採光・窓、床材、天井高、LDKの広がり、家具配置の余白",
-    "居間・リビング": "採光・窓、床材、居間の広さ、居室の雰囲気",
+    LDK: "リビング・ダイニング・キッチンのつながり、広がり、採光・窓、床材、家具配置の余白",
+    "リビング・ダイニング": "リビングとダイニングのつながり、採光・窓、床材、テーブルを置く余白",
+    "キッチン・リビング": "キッチンからリビングへの見通し、対面かどうか、採光、床材",
+    "ダイニング・キッチン": "キッチンと食事スペースの位置関係、家事動線、収納、採光",
     ダイニング: "テーブルスペース、キッチンとの位置関係、採光、収納",
     キッチン: "コンロ種別、食洗機、収納、カウンター形状（対面・L字等）、換気扇、窓",
     洋室: "窓・採光、床材、クローゼット・収納、部屋の広さ",
@@ -1890,6 +1941,18 @@
     snapshotPhotoSettings();
     persistCaptionFromUi();
 
+    const missingCaptions = missingCaptionPhotos();
+    if (missingCaptions.length) {
+      const ok = window.confirm(
+        `キャプション未入力が ${missingCaptions.length} 枚あります（${describeMissingCaptionNumbers(missingCaptions)}）。\n` +
+          "このまま送りますか？\n\n「キャンセル」を押すと、未入力の写真を開きます。"
+      );
+      if (!ok) {
+        goToNextMissingCaption();
+        return;
+      }
+    }
+
     let sent = 0;
     let failed = 0;
     let firstError = "";
@@ -2268,7 +2331,12 @@ ${examplesBlock}
     if (!isUsableCaptionText(caption)) throw new Error("empty caption");
 
     if (!categories.includes(category)) {
-      const found = categories.find((c) => category.includes(c) || caption.includes(c) || raw.includes(c));
+      // 「リビング」より「リビング・ダイニング」のような長い名前を優先する
+      const byLength = [...categories].sort((a, b) => charLen(b) - charLen(a));
+      const found =
+        byLength.find((c) => category.includes(c)) ||
+        byLength.find((c) => caption.includes(c)) ||
+        byLength.find((c) => raw.includes(c));
       category = found || "その他";
     }
     return { category, caption: cleanCaptionCandidate(caption), rawCandidates };
@@ -2718,11 +2786,124 @@ ${keywordsLine}
     renamePhoto(photo.id, photoNameInput.value);
   }
 
+  function hasCaptionText(photo) {
+    return Boolean((photo?.caption || "").trim());
+  }
+
+  function missingCaptionPhotos() {
+    return photos.filter((photo) => !hasCaptionText(photo));
+  }
+
+  /** 「3・17枚目」のように、未入力の写真の番号を短く並べる */
+  function describeMissingCaptionNumbers(list = missingCaptionPhotos(), max = 8) {
+    const numbers = list.map((photo) => photos.indexOf(photo) + 1).filter((n) => n > 0);
+    const shown = numbers.slice(0, max).join("・");
+    return numbers.length > max ? `${shown}…ほか${numbers.length - max}枚` : `${shown}枚目`;
+  }
+
+  function captionOverviewTileClass(photo) {
+    const classes = ["caption-overview-tile"];
+    if (photo.id === activePhotoId) classes.push("is-active");
+    if (!hasCaptionText(photo)) classes.push("is-missing");
+    else if (photo.fallbackCaptionText === photo.caption) classes.push("is-fallback");
+    else classes.push("is-done");
+    return classes.join(" ");
+  }
+
+  function captionOverviewTileTitle(photo, index) {
+    const text = hasCaptionText(photo) ? formatCaptionOutput(photo.caption) : "（未入力）";
+    return `${index + 1}. ${photo.name}\n${text}`;
+  }
+
+  /** キャプションタブ上部の、全写真のキャプション状況（サムネイル一覧） */
+  function renderCaptionOverview() {
+    if (!captionOverview || !captionOverviewGrid) return;
+    captionOverview.hidden = photos.length === 0;
+    // 写真の並びが同じなら作り直さない（入力欄から離れた瞬間の作り直しで、押したサムネイルが消えないように）
+    const tiles = [...captionOverviewGrid.querySelectorAll(".caption-overview-tile")];
+    const sameOrder =
+      tiles.length === photos.length &&
+      tiles.every((btn, i) => btn.dataset.id === photos[i].id && btn.dataset.thumb === photos[i].thumbUrl);
+    if (sameOrder) {
+      refreshCaptionOverviewState();
+      return;
+    }
+    captionOverviewGrid.innerHTML = "";
+    photos.forEach((photo, index) => {
+      const li = document.createElement("li");
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = captionOverviewTileClass(photo);
+      btn.dataset.id = photo.id;
+      btn.dataset.thumb = photo.thumbUrl || "";
+      btn.title = captionOverviewTileTitle(photo, index);
+      const img = document.createElement("img");
+      img.src = photo.thumbUrl;
+      img.alt = "";
+      const num = document.createElement("span");
+      num.className = "caption-overview-num";
+      num.textContent = String(index + 1);
+      btn.append(img, num);
+      btn.addEventListener("click", () => openPhotoCaption(photo.id));
+      li.append(btn);
+      captionOverviewGrid.append(li);
+    });
+    updateCaptionOverviewCount();
+  }
+
+  /** 入力中は画像を作り直さず、印と件数だけ更新する */
+  function refreshCaptionOverviewState() {
+    if (!captionOverviewGrid) return;
+    captionOverviewGrid.querySelectorAll(".caption-overview-tile").forEach((btn) => {
+      const index = photos.findIndex((p) => p.id === btn.dataset.id);
+      if (index < 0) return;
+      btn.className = captionOverviewTileClass(photos[index]);
+      btn.title = captionOverviewTileTitle(photos[index], index);
+    });
+    updateCaptionOverviewCount();
+  }
+
+  function updateCaptionOverviewCount() {
+    if (!captionOverviewCount) return;
+    const missing = missingCaptionPhotos().length;
+    const done = photos.length - missing;
+    captionOverviewCount.textContent = missing
+      ? `入力済み ${done}/${photos.length}・未入力 ${missing}枚`
+      : `入力済み ${done}/${photos.length}・すべて入力済み`;
+    captionOverviewCount.classList.toggle("has-missing", missing > 0);
+    if (nextMissingCaptionBtn) nextMissingCaptionBtn.disabled = missing === 0;
+  }
+
+  /** 写真を選んで、キャプションタブのまま入力欄へ */
+  function openPhotoCaption(id) {
+    selectPhoto(id);
+    setPanelTab("caption");
+    if (captionInput && !captionBox.hidden) captionInput.focus();
+  }
+
+  /** 今の写真の次にある未入力の写真へ（最後まで行ったら先頭から探す） */
+  function goToNextMissingCaption() {
+    persistCaptionFromUi();
+    const missing = missingCaptionPhotos();
+    if (!missing.length) {
+      showToast("すべての写真にキャプションが入っています");
+      refreshCaptionOverviewState();
+      return false;
+    }
+    const start = photos.findIndex((p) => p.id === activePhotoId);
+    const next =
+      photos.find((p, i) => i > start && !hasCaptionText(p)) || missing[0];
+    openPhotoCaption(next.id);
+    return true;
+  }
+
   function renderGallery() {
     const hasPhotos = photos.length > 0;
     gallery.hidden = !hasPhotos;
     galleryCount.textContent = `${photos.length}枚`;
     galleryList.innerHTML = "";
+    // 1枚もキャプションがないうちは「未入力」の印を出さない（最初から全部に付くと邪魔なため）
+    const someCaptioned = photos.some(hasCaptionText);
 
     photos.forEach((photo, index) => {
       const li = document.createElement("li");
@@ -2773,6 +2954,12 @@ ${keywordsLine}
         badge.title = "AIの応答が不安定だったため定型文を入れました。再生成するか手で直してください";
         meta.append(badge);
       }
+      if (!hasCaptionText(photo) && someCaptioned) {
+        const badge = document.createElement("span");
+        badge.className = "gallery-badge is-missing";
+        badge.textContent = "キャプション未入力";
+        meta.append(badge);
+      }
       if (photo.caption) {
         const cap = document.createElement("span");
         cap.className = "gallery-caption-preview";
@@ -2796,6 +2983,7 @@ ${keywordsLine}
       galleryList.append(li);
     });
 
+    renderCaptionOverview();
     syncNameField();
     syncCaptionField();
     updateBatchButtons();
@@ -6570,7 +6758,12 @@ ${keywordsLine}
     captionInput.value = clampCaptionBody(stripCaptionPrefix(captionInput.value));
     updateCaptionCount();
     persistCaptionFromUi();
+    refreshCaptionOverviewState();
   });
+
+  if (nextMissingCaptionBtn) {
+    nextMissingCaptionBtn.addEventListener("click", () => goToNextMissingCaption());
+  }
 
   captionInput.addEventListener("blur", () => {
     persistCaptionFromUi();
@@ -6612,7 +6805,11 @@ ${keywordsLine}
       notifyError("キャプションが入力されていません");
       return;
     }
-    copyText(plain, `${photos.filter((p) => p.caption).length}件のキャプションをコピーしました`);
+    const missingCaptions = missingCaptionPhotos();
+    const note = missingCaptions.length
+      ? `（未入力 ${missingCaptions.length}枚: ${describeMissingCaptionNumbers(missingCaptions)}）`
+      : "";
+    copyText(plain, `${photos.filter((p) => p.caption).length}件のキャプションをコピーしました${note}`);
   });
 
   downloadCaptionsBtn.addEventListener("click", () => {

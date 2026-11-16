@@ -130,6 +130,15 @@
             <section class="panel-pane" data-panel-pane="caption" role="tabpanel" hidden>
               <p class="panel-empty" id="captionEmpty">写真を選択するとキャプションを編集できます</p>
 
+              <div class="caption-overview" id="captionOverview" hidden>
+                <div class="caption-overview-head">
+                  <span class="caption-overview-count" id="captionOverviewCount">入力済み 0/0</span>
+                  <button type="button" class="btn ghost caption-overview-next" id="nextMissingCaptionBtn" title="キャプションが空の写真へ順に移動します">次の未入力へ</button>
+                </div>
+                <ul class="caption-overview-grid" id="captionOverviewGrid" aria-label="写真ごとのキャプション状況"></ul>
+                <p class="hint">赤い枠が未入力、橙は定型文（AI失敗）です。押すとその写真のキャプションを編集できます</p>
+              </div>
+
               <div class="caption-box" id="captionBox" hidden>
                 <label class="field">
                   <span>カテゴリ（生成前に選択）</span>
