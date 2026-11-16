@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const APP_VERSION = "59";
+  const APP_VERSION = "60";
 
   const fileInput = document.getElementById("fileInput");
   const fileHint = document.getElementById("fileHint");
@@ -2874,11 +2874,19 @@ ${keywordsLine}
     if (nextMissingCaptionBtn) nextMissingCaptionBtn.disabled = missing === 0;
   }
 
-  /** 写真を選んで、キャプションタブのまま入力欄へ */
+  /**
+   * 写真を選んで、キャプションタブのままカテゴリ欄へ。
+   * 写真を選んだら次はカテゴリを選ぶので、上のサムネイル一覧のすぐ下にカテゴリが来るようにスクロールする。
+   */
   function openPhotoCaption(id) {
     selectPhoto(id);
     setPanelTab("caption");
-    if (captionInput && !captionBox.hidden) captionInput.focus();
+    if (!captionCategory || captionBox.hidden) return;
+    const field = captionCategory.closest(".field") || captionCategory;
+    const overviewHeight = captionOverview && !captionOverview.hidden ? captionOverview.offsetHeight : 0;
+    field.style.scrollMarginTop = `${overviewHeight + 24}px`;
+    field.scrollIntoView({ block: "start", behavior: "auto" });
+    captionCategory.focus({ preventScroll: true });
   }
 
   /** 今の写真の次にある未入力の写真へ（最後まで行ったら先頭から探す） */
