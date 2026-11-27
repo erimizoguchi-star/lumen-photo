@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const APP_VERSION = "60";
+  const APP_VERSION = "61";
 
   const fileInput = document.getElementById("fileInput");
   const fileHint = document.getElementById("fileHint");
@@ -1467,19 +1467,37 @@
     return String(model || "").startsWith("gemini-3");
   }
 
-  function withGeminiGenerationConfig(config, model, thinkingLevel = "low") {
-    if (!isGemini3Model(model)) return config;
-    return {
-      ...config,
-      // 考える分のトークンも上限に含まれるので、深く考えるときは多めに取る
-      maxOutputTokens: Math.max(Number(config.maxOutputTokens) || 0, thinkingLevel === "low" ? 1024 : 2048),
-      thinkingConfig: { thinkingLevel },
-    };
+  function isGemini25Model(model) {
+    return String(model || "").startsWith("gemini-2.5");
   }
 
-  /** キャプション本生成で試す「考える深さ」。medium が使えないモデルでは low に戻す */
+  /**
+   * Gemini 2.5 / 3 系は「考える」分のトークンも maxOutputTokens に含まれる。
+   * 上限が小さいと、考えるだけで使い切って本文が空・途中切れ（finishReason: MAX_TOKENS）になり、
+   * 定型文に置き換わっていた（v60 まで）。上限は十分大きく取り、実際に使った分だけ課金される。
+   * thinkingLevel: "medium" | "low" | "none"（"none" は考える設定を送らない）
+   */
+  const GEMINI_MIN_OUTPUT_TOKENS = 8192;
+
+  function withGeminiGenerationConfig(config, model, thinkingLevel = "low") {
+    const next = {
+      ...config,
+      maxOutputTokens: Math.max(Number(config.maxOutputTokens) || 0, GEMINI_MIN_OUTPUT_TOKENS),
+    };
+    if (thinkingLevel === "none") return next;
+    if (isGemini3Model(model)) {
+      next.thinkingConfig = { thinkingLevel };
+    } else if (isGemini25Model(model)) {
+      next.thinkingConfig = { thinkingBudget: thinkingLevel === "medium" ? 2048 : 512 };
+    }
+    return next;
+  }
+
+  /** キャプション本生成で試す「考える深さ」。指定が通らない・出力が切れたときは次の設定でやり直す */
   function captionThinkingLevels(model) {
-    return isGemini3Model(model) ? ["medium", "low"] : ["low"];
+    if (isGemini3Model(model)) return ["medium", "low"];
+    if (isGemini25Model(model)) return ["medium", "none"];
+    return ["none"];
   }
 
   /**
@@ -1487,10 +1505,11 @@
    * 《杏栄》なしの本文で、設定文字数（32〜36文字）以内に収めること。
    */
   const CAPTION_STYLE_EXAMPLES = [
-    "南からの光がたっぷり入る、開放感あるリビング",
-    "白を基調にした清潔感のある、使いやすい対面キッチン",
-    "緑に囲まれた落ち着きある住宅街に建つ、整った外観",
-    "大きな窓から街並みを望む、明るく風通しの良い洋室",
+    "2面採光の大きな窓が魅力！収納や暖房も整った明るいリビング",
+    "リビングを見渡せる対面キッチン！収納豊富で調理も快適",
+    "大容量シューズボックスを完備！家族全員の靴をすっきり収納",
+    "便利な三面鏡のシャワー付洗面台！床下や壁面収納も充実",
+    "カーポートとシャッター車庫完備！雪の日も愛車をしっかり守る",
   ];
 
   function geminiResponseText(data) {
@@ -2161,7 +2180,7 @@ ${visualHint}`;
       : "";
 
     const lengthRules = `- caption 本文は《杏栄》なしで ${minAim}〜${bodyMax} 文字を目指す。${bodyMax} 文字を超えてはいけない
-- 短い名詞句だけで終わらせず、光・広がり・質感・使い勝手など写真から受ける印象を足して、上限近くまで使う
+- 短い名詞句だけで終わらせず、具体的な特徴と暮らしのメリットを足して、上限近くまで使う
 - 語・助詞・文の途中で終わらない。末尾は体言止めか、言い切った短い表現にする（「が」「を」「な」「の」などで止めない）
 - 文字数は、語を途中で切らずに、言い換え・語順の入れ替え・印象語の追加や削除で合わせる`;
 
@@ -2178,10 +2197,12 @@ ${CAPTION_STYLE_EXAMPLES.map((ex) => `- ${ex}`).join("\n")}`;
     return `添付写真を注意深く観察し、不動産登録用の日本語キャプションを作成してください。
 
 方針:
-- HOUSEDOなどの定型文・決まり文句に寄せない
-- 写真を見た人が感じる印象・雰囲気を、写っている事実に基づいて言葉にする
-- 設備名の羅列ではなく、「明るさ」「開放感」「清潔感」「落ち着き」「広がり」など視覚的な印象を優先する
-- 写っていない設備・特徴は絶対に書かない
+- HOUSEDOなどの定型文・決まり文句に寄せない。「明るい」「清潔感」「きれいな」だけの、どの物件にも言える文にしない
+- 写真で確認できる、その物件ならではの具体的な特徴（設備・素材・形・色・窓の数や向き・収納の種類など）を最低1つ名前で挙げる
+  例: 対面キッチン、IHクッキングヒーター、出窓、2面採光、三面鏡、シャワー付洗面台、琉球風畳、手すり、木目調の壁、シャッター車庫、屋根付きバルコニー
+- その特徴が暮らしにどう役立つか（家事が楽・収納が片付く・家族が集まる・雪の日も安心など）につなげる
+- 前半で特徴、後半で暮らしのメリットの2フレーズ構成がおすすめ。区切りに「！」を使ってよい
+- 写っていない設備・特徴は絶対に書かない。見て判断できないもの（床暖房・築年数など）は断定しない
 - 指定キーワードがある場合は、事実と矛盾しない範囲で積極的に反映する
 
 物件種別: ${typeConfig.label}
@@ -2201,8 +2222,8 @@ ${examplesBlock}
 1. 写真の事実と印象は頭の中で確認し、出力には書かない
 2. キーワードがある場合は、写真と矛盾しないものだけを caption に自然に入れる
 3. 写っていない設備・特徴は caption に入れない
-4. 言い回しや切り口（光・広がり・素材感・暮らしやすさなど）を変えた候補を3つ作り、どれも ${bodyMax} 文字以内で最後まで書き切る
-5. 3つのうち、写真に一番合い、上限近くまで書けているものを caption にする
+4. 取り上げる特徴や切り口（設備・素材・収納・動線・眺め・暮らしのメリットなど）を変えた候補を3つ作り、どれも ${bodyMax} 文字以内で最後まで書き切る
+5. 3つのうち、その物件らしさが一番伝わり、上限近くまで書けているものを caption にする
 
 出力ルール:
 1. 出力は日本語のJSONオブジェクトのみ。英語の説明・前置き・コードフェンスは禁止
@@ -2211,7 +2232,7 @@ ${examplesBlock}
 3. observation や category は出力しない
 4. caption は日本語のみ。《杏栄》は付けない。本文のみ ${bodyMax} 文字以内
 5. 【カテゴリ】や■は付けない
-6. 「です・ます」は使わず、読みやすい短い文やフレーズでまとめる
+6. 語尾は体言止めか短い言い切り。「です・ます」は多用しない
 7. 指定カテゴリと物件種別に合わない表現は禁止
 8. 誇大表現・虚偽（正確な駅距離・面積・価格など）は禁止
 9. 定型の「おすすめポイント」「詳細はお問合せを」だけで埋めない
@@ -2400,7 +2421,7 @@ ${examplesBlock}
       systemInstruction: {
         parts: [
           {
-            text: `あなたは不動産物件写真のキャプション作家です。必ず日本語のJSONだけを返します。キーは caption を最初にし、候補3つを candidates に入れます。observation は出力しません。文字のあいだに番号を入れません。写っていない設備は断定しません。本文は${getCaptionBodyMax()}文字以内で上限近くまで使い、語や文の途中では終わらせません。`,
+            text: `あなたは不動産物件写真のキャプション作家です。必ず日本語のJSONだけを返します。キーは caption を最初にし、候補3つを candidates に入れます。observation は出力しません。文字のあいだに番号を入れません。写っていない設備は断定しません。写真で確認できる具体的な特徴を名前で挙げ、暮らしのメリットにつなげます。「明るい」「清潔感」だけの、どの物件にも言える文にはしません。本文は${getCaptionBodyMax()}文字以内で上限近くまで使い、語や文の途中では終わらせません。`,
           },
         ],
       },
@@ -2476,6 +2497,11 @@ ${examplesBlock}
                 throw new Error(explainGeminiError(`SAFETY:${finish}`, data));
               }
 
+              // 出力が上限で切れたときは、途中までの文を使わない（「…、ハン」のような途中切れの原因）
+              if (/MAX_TOKENS/i.test(finish)) {
+                lastError = new Error("AIの出力が途中で切れました（MAX_TOKENS / thinking）");
+                break;
+              }
               const text = geminiResponseText(data);
               if (!text) {
                 lastError = new Error(explainGeminiError("AIから本文が返りませんでした", data));
@@ -2495,9 +2521,10 @@ ${examplesBlock}
             continue;
           }
           if (lastError && /利用上限/i.test(lastError.message)) throw lastError;
+          if (lastError && /MAX_TOKENS/.test(lastError.message)) break;
         }
-        // 考える深さの指定が通らないモデルだけ、浅い設定でやり直す
-        if (!(lastError && /thinking/i.test(lastError.message))) break;
+        // 考える深さの指定が通らない・出力が切れたときだけ、浅い設定でやり直す
+        if (!(lastError && /thinking|MAX_TOKENS/i.test(lastError.message))) break;
       }
     }
     throw lastError || new Error("生成に失敗しました");
@@ -2524,7 +2551,7 @@ ${keywordsLine}
 
 ルール:
 - HOUSEDOなどの定型文に寄せない
-- 写真から受ける印象（光・広がり・清潔感・落ち着きなど）を足す
+- 写真で確認できる具体的な特徴（設備・素材・収納など）や、暮らしのメリットを足す
 - 写っていない設備は追加しない
 - 《杏栄》は付けない
 - 末尾は体言止めか、言い切った短い表現にする
@@ -2566,6 +2593,7 @@ ${keywordsLine}
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) continue;
+        if (/MAX_TOKENS/i.test(data?.candidates?.[0]?.finishReason || "")) continue;
         const text = geminiResponseText(data);
         if (!text) continue;
         const parsed = parseCaptionResponse(text);
@@ -2601,6 +2629,7 @@ ${keywordsLine}
       const fallback = pickFallbackCaption(category);
       result = { category: category || "その他", caption: fallback };
       usedFallback = true;
+      photo.fallbackReason = err instanceof Error ? err.message : String(err || "");
       console.warn("AI caption failed; using template fallback", err);
     }
 
@@ -2626,8 +2655,13 @@ ${keywordsLine}
     photo.captionCategory = category || result.category;
     photo.caption = fitCaptionBody(caption);
     // AI に失敗して定型文を入れた写真は、手で直すまで一覧に印を出す
-    if (usedFallback) photo.fallbackCaptionText = photo.caption;
-    else delete photo.fallbackCaptionText;
+    if (usedFallback) {
+      photo.fallbackCaptionText = photo.caption;
+      if (!photo.fallbackReason) photo.fallbackReason = "AIの返答を文章として使えませんでした";
+    } else {
+      delete photo.fallbackCaptionText;
+      delete photo.fallbackReason;
+    }
 
     if (syncUi && photo.id === activePhotoId) {
       setUiCaptionCategory(photo.captionCategory);
@@ -2959,7 +2993,9 @@ ${keywordsLine}
         const badge = document.createElement("span");
         badge.className = "gallery-badge is-fallback";
         badge.textContent = "定型文（AI失敗）";
-        badge.title = "AIの応答が不安定だったため定型文を入れました。再生成するか手で直してください";
+        badge.title = `AIの生成に失敗したため定型文を入れました。再生成するか手で直してください${
+          photo.fallbackReason ? `\n理由: ${photo.fallbackReason}` : ""
+        }`;
         meta.append(badge);
       }
       if (!hasCaptionText(photo) && someCaptioned) {
